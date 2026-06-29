@@ -17,6 +17,25 @@
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Ambiente
+# MAGIC O mlflow do runtime do Databricks pode ser antigo demais para o `ResponsesAgent` e o
+# MAGIC `mlflow.genai`. Instalamos as versões atuais no cluster e reiniciamos o Python.
+
+# COMMAND ----------
+
+# MAGIC %pip install -U mlflow databricks-langchain langgraph
+
+# COMMAND ----------
+
+# Reinicia o Python para carregar as versões recém-instaladas (apenas no Databricks).
+try:
+    dbutils.library.restartPython()  # noqa: F821
+except NameError:
+    pass
+
+# COMMAND ----------
+
 import os
 import sys
 from dataclasses import dataclass
