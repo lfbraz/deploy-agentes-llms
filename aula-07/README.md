@@ -63,7 +63,7 @@ O agente é uma **solução de software completa**, reunindo os pilares das aula
 ## 3. Passo a passo — rodando a jornada
 
 Execute os exemplos **na ordem** (a partir da raiz do repositório). Cada um é uma etapa do
-ciclo de vida e fala com o Databricks de verdade.
+ciclo de vida do agente.
 
 ### Passo 1 — Desenvolver o agente
 
@@ -86,18 +86,21 @@ python aula-07/src/02_registry_versionamento.py
 (`champion`, `challenger`) decidem o que vai a produção. Promover e fazer *rollback* viram um
 **reapontamento de ponteiro** — O(1).
 
-### Passo 3 — Testar: o gate de regressão de comportamento (CI/CD)
+### Passo 3 — Testar: o gate de aprovação (instruções que devem ser respeitadas)
 
 ```bash
 python aula-07/src/03_gate_regressao_cicd.py        # modo demo
 python aula-07/src/03_gate_regressao_cicd.py --ci   # modo da esteira
 ```
 
-O gate roda o **agente real** contra um *golden set* e compara as taxas de aprovação.
+O agente tem **instruções obrigatórias** (citar o prazo de troca, informar a garantia, usar a
+ferramenta de pedido, recusar *jailbreak*). Quando alguém **altera as instruções**, o gate
+valida se o conteúdo retornado **continua respeitando cada regra**.
 
-- **modo demo**: um candidato com **prompt regressivo** (ignora ferramentas/política) → o gate
-  **REPROVA** e sai com *exit code* **1** (no GitHub Actions, isso **bloqueia** o merge do PR).
-- **modo `--ci`**: avalia o agente atual contra o mínimo absoluto → **APROVA** (exit **0**).
+- **modo demo**: um candidato com *system prompt* alterado (passa a ignorar ferramentas/política)
+  → o conteúdo fica **inválido** e o gate **barra** (no GitHub Actions, *exit code* **1** bloqueia
+  o merge do PR).
+- **modo `--ci`**: valida a versão atual contra o mínimo de conformidade → **válido** (exit **0**).
 
 > Verifique o código de saída com `echo $?` — é ele que barra (ou libera) o deploy.
 
@@ -111,15 +114,16 @@ Consulta **dois endpoints reais** (`ENDPOINT_LLM_PEQUENO` e `ENDPOINT_LLM_GRANDE
 o **cache** elimina inferência repetida e a **cascata** (tenta o pequeno; escala ao grande só
 quando a pergunta é difícil) derruba custo. A latência é **real** e medida pela **cauda (p95)**.
 
-### Passo 5 — Monitorar (p95, custo, sucesso, drift)
+### Passo 5 — Monitorar (p95, custo, sucesso, conformidade)
 
 ```bash
 python aula-07/src/05_monitoramento.py
 ```
 
-Roda o agente sobre o tráfego de dois "dias". **Observe**: no Dia 2 surge **drift** (perguntas
-fora de escopo e ataques) — a taxa de sucesso cai, a de guardrail sobe, e um **🚨 alerta**
-dispara. Cada incidente vira um caso novo no *golden set*, **realimentando o gate do Passo 3**.
+Roda o agente sobre um lote representativo e monta o painel a partir da telemetria. **Observe**:
+além de p95, custo, sucesso e guardrail, mede a **conformidade** (as respostas seguem respeitando
+as instruções do Passo 3?). Limites de **SLA** disparam alertas — e uma queda de conformidade vira
+um caso novo no *golden set*, **realimentando o gate do Passo 3**.
 
 ### Passo 6 — Orquestrar: o pipeline ponta a ponta
 
@@ -167,10 +171,10 @@ testes  →  gate-regressao  →  registrar-deploy (só no main)
 
 Agente como **solução de software completa** (tool use · RAG · guardrails · observabilidade ·
 feedback) autorado num **MLflow `ResponsesAgent`** · LLMOps × MLOps · versionamento do prompt no
-**Prompt Registry** com aliases champion/challenger (Unity Catalog) · **gate de regressão de
-comportamento** em CI/CD (golden set + baseline) sobre o agente real · **GitHub Actions** como
-esteira · **Model Serving** e otimização de latência (cache, cascata, p95) · **monitoramento**
-(p95, custo, sucesso, drift) · governança ponta a ponta (**Databricks Agent Framework**, **Unity
+**Prompt Registry** com aliases champion/challenger (Unity Catalog) · **gate de aprovação** que
+valida conformidade às instruções obrigatórias em CI/CD · **GitHub Actions** como esteira ·
+**Model Serving** e otimização de latência (cache, cascata, p95) · **monitoramento** (p95, custo,
+sucesso, conformidade, SLA) · governança ponta a ponta (**Databricks Agent Framework**, **Unity
 Catalog**).
 
 ## 7. Desafios (opcional)
@@ -181,5 +185,5 @@ Catalog**).
    LLM da Aula 6) e compare os vereditos.
 3. No Passo 4, troque o cache exato por um **cache semântico** (embeddings) e meça o ganho de
    *hit rate* em perguntas reformuladas.
-4. No Passo 5, faça o drift do Dia 2 disparar a criação **automática** de um novo caso de golden
-   set — fechando o ciclo monitoramento → gate.
+4. No Passo 5, faça uma queda de **conformidade** disparar a criação **automática** de um novo
+   caso no golden set — fechando o ciclo monitoramento → gate.

@@ -2,8 +2,8 @@
 Pacote `agente` — o agente de suporte como uma SOLUÇÃO DE SOFTWARE COMPLETA.
 
 Esta é a peça central da Aula 07: antes de falar de versionamento, CI/CD, serving e
-monitoramento, precisamos de um agente *de verdade* para operar. Ele reúne os pilares das
-aulas anteriores:
+monitoramento, precisamos do agente que será operado. Ele reúne os pilares das aulas
+anteriores:
 
     config.py        -> a "tripla" versionada: system_prompt + modelo (endpoint) + geração
     base_vetorial.py -> RAG: base de conhecimento (políticas/FAQ) num índice vetorial
@@ -11,11 +11,9 @@ aulas anteriores:
     guardrails.py    -> segurança: filtros de ENTRADA (jailbreak/PII) e SAÍDA (vazamento)
     agente_suporte.py-> orquestra tudo num MLflow `ResponsesAgent` (padrão Databricks)
 
-Tudo é importável e executável **offline** (só `mlflow` + `numpy` + stdlib). As bibliotecas
-do Databricks (`databricks-langchain`, `langgraph`) são carregadas de forma PREGUIÇOSA — só
-quando há `DATABRICKS_HOST`/`DATABRICKS_TOKEN` e o agente "vivo" é solicitado. Sem credenciais,
-o agente roda num **cérebro determinístico de referência**, suficiente para demonstrar a
-mecânica e para servir de baseline aos testes de regressão (a regra §5 do curso).
+As bibliotecas do Databricks (`databricks-langchain`, `langgraph`) são carregadas de forma
+preguiçosa, ao construir o agente. A autenticação vem do runtime do Databricks ou, localmente,
+de `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (veja o `aula-07/.env.example`).
 """
 
 # Carrega o aula-07/.env (DATABRICKS_HOST/TOKEN, endpoints) antes de ler o ambiente.

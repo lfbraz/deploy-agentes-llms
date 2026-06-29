@@ -1,21 +1,18 @@
 """
-agente_suporte.py — o agente embrulhado num MLflow `ResponsesAgent` (Databricks, ao vivo)
-=========================================================================================
+agente_suporte.py — o agente embrulhado num MLflow `ResponsesAgent`
+===================================================================
 
-Este módulo costura tudo num único agente, seguindo o caminho recomendado pela documentação
-do **Databricks Agent Framework**: autorar o agente com a interface **`ResponsesAgent`** do
-MLflow para ganhar, de graça, *tracing*, avaliação, deploy e monitoramento integrados ao
-workspace. O agente reúne os pilares das aulas:
+Costura tudo num único agente, seguindo o caminho recomendado pelo **Databricks Agent
+Framework**: autorar com a interface **`ResponsesAgent`** do MLflow para ganhar *tracing*,
+avaliação, deploy e monitoramento integrados. O agente reúne os pilares das aulas:
 
     ENTRADA → [guardrail de entrada] → [agente: RAG + tool use] → [guardrail de saída] → SAÍDA
                                               │
                                        (observabilidade: trace + telemetria + feedback)
 
-**Não há modo offline.** O "cérebro" é sempre um endpoint Foundation Model (Claude) do
-Databricks, via `ChatDatabricks`, orquestrado por um grafo LangGraph e servido pela classe
-`AgenteSuporteResponses(ResponsesAgent)`. Executar `responder()` exige `DATABRICKS_HOST`/
-`DATABRICKS_TOKEN` e as libs `databricks-langchain` e `langgraph` — na falta de qualquer um,
-o agente levanta um erro didático (não há fallback simulado).
+O "cérebro" é um endpoint Foundation Model (Claude) via `ChatDatabricks`, orquestrado por um
+grafo LangGraph e servido pela classe `AgenteSuporteResponses(ResponsesAgent)`. O pipeline
+público é a função `responder()`.
 """
 
 from __future__ import annotations
@@ -98,7 +95,7 @@ class AgenteSuporteResponses(ResponsesAgent):
 
 
 def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteSuporteResponses:
-    """Monta o agente vivo: ChatDatabricks (Claude) + ferramentas + LangGraph."""
+    """Monta o agente: ChatDatabricks (Claude) + ferramentas + LangGraph."""
     exigir_databricks(libs=("databricks_langchain", "langgraph"))
     configurar_mlflow()
     from databricks_langchain import ChatDatabricks
@@ -137,7 +134,7 @@ def _ferramentas_de_responses(resp: ResponsesAgentResponse) -> list[str]:
     return nomes
 
 
-# Cache do agente vivo, por endpoint (construído uma vez por processo/configuração).
+# Cache do agente por endpoint (construído uma vez por processo/configuração).
 _AGENTES: dict[str, AgenteSuporteResponses] = {}
 
 
@@ -152,7 +149,7 @@ def _agente(config: ConfigAgente) -> AgenteSuporteResponses:
 # ---------------------------------------------------------------------------------------
 
 def responder(pergunta: str, config: ConfigAgente = CONFIG_PADRAO) -> Resposta:
-    """Executa o pipeline completo (sempre no Databricks) e devolve a `Resposta` + telemetria."""
+    """Executa o pipeline completo e devolve a `Resposta` com a telemetria da requisição."""
     t0 = time.perf_counter()
 
     # (1) Guardrail de ENTRADA — barra jailbreak/PII ANTES de gastar uma chamada de LLM.
@@ -165,7 +162,7 @@ def responder(pergunta: str, config: ConfigAgente = CONFIG_PADRAO) -> Resposta:
         TELEMETRIA.append(resp)
         return resp
 
-    # (2) Agente vivo no Databricks (RAG + tool use), com tracing automático.
+    # (2) Agente (RAG + tool use), com tracing automático.
     saida = _agente(config).predict(
         ResponsesAgentRequest(input=[{"role": "user", "content": ge.texto}]))
     texto = _texto_de_responses(saida)

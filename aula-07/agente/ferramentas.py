@@ -11,7 +11,7 @@ cabeça": quando precisa de um dado, ele DECIDE chamar uma ferramenta. Definimos
 
 Cada ferramenta é uma função Python pura; `ferramentas_langchain()` as embrulha como
 ferramentas LangChain (`@tool`) e as entrega ao grafo do agente, que decide quando chamá-las.
-O import do LangChain é preguiçoso (acontece só ao construir o agente vivo).
+O import do LangChain é lazy (acontece só ao construir o agente).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def buscar_politica(pergunta: str) -> str:
 
 
 def ferramentas_langchain():
-    """Embrulha as funções como ferramentas LangChain (`@tool`) para o agente vivo.
+    """Embrulha as funções como ferramentas LangChain (`@tool`) para o agente.
 
     Import preguiçoso: só é chamado quando o agente Databricks é construído (libs presentes).
     """

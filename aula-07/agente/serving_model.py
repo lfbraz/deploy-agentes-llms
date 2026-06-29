@@ -2,8 +2,8 @@
 serving_model.py — entrypoint "models-from-code" do MLflow para o agente
 ========================================================================
 
-Este arquivo NÃO é importado pelos exemplos offline. Ele é o artefato que o MLflow executa
-ao registrar o agente com a abordagem *models-from-code*:
+Este arquivo é o artefato que o MLflow executa ao registrar o agente com a abordagem
+*models-from-code*:
 
     import mlflow
     from mlflow.models.resources import DatabricksServingEndpoint
@@ -30,5 +30,5 @@ from mlflow.models import set_model
 from agente.agente_suporte import construir_agente_databricks
 from agente.config import CONFIG_PADRAO
 
-# Constrói o agente vivo (ChatDatabricks + LangGraph) e o registra como o modelo do artefato.
+# Constrói o agente (ChatDatabricks + LangGraph) e o registra como o modelo do artefato.
 set_model(construir_agente_databricks(CONFIG_PADRAO))

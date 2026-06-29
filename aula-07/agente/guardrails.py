@@ -10,8 +10,8 @@ camadas de proteção determinísticas, que rodam ANTES e DEPOIS do modelo:
   • Guardrail de SAÍDA: impede que a resposta vaze PII ou segredos (ex.: o system prompt,
     chaves, dados de outros clientes).
 
-Aqui implementamos versões **em código, determinísticas e offline** (sem chave de API),
-suficientes para o didático e para servir de checagem reproduzível na esteira de CI/CD.
+Aqui implementamos versões **em código e determinísticas** (não chamam o LLM), suficientes
+para o didático e para servir de checagem reproduzível na esteira de CI/CD.
 Em produção, estes filtros correspondem a serviços dedicados — **Databricks AI Gateway**
 (PII, *unsafe content*, *jailbreak*), **Azure Prompt Shields** ou **Llama Guard** —, que a
 Aula 5 cobriu. A interface (entra texto, sai um veredito) é a mesma.

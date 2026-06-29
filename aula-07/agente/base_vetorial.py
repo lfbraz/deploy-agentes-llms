@@ -5,11 +5,10 @@ base_vetorial.py — a base de conhecimento do agente (RAG) com embeddings do Da
 Retomamos a Aula 4 (bancos vetoriais e RAG). O agente não "sabe" a política da loja: ele a
 RECUPERA de uma base de conhecimento indexada por embeddings e responde fundamentado nela.
 
-Aqui usamos **embeddings reais do Databricks** (Foundation Model API) via `DatabricksEmbeddings`
-— não há modo offline. O índice é mantido em memória com `numpy` (produto interno = similaridade
-do cosseno); em produção, esta camada corresponde ao **Databricks Vector Search** (com
-`DatabricksVectorSearchIndex` como recurso do agente). Requer `DATABRICKS_HOST`/`DATABRICKS_TOKEN`
-e a lib `databricks-langchain`.
+Os embeddings vêm do Databricks (Foundation Model API) via `DatabricksEmbeddings`, e o índice é
+mantido em memória com `numpy` (produto interno = similaridade do cosseno). Em produção, esta
+camada corresponde ao **Databricks Vector Search** (com `DatabricksVectorSearchIndex` como
+recurso do agente).
 """
 
 from __future__ import annotations
