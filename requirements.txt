@@ -1,0 +1,53 @@
+# Núcleo LangChain (orquestração e agentes)
+langchain>=1.0.0
+langchain-anthropic>=0.3.0
+langchain-openai>=0.2.0
+langgraph>=0.2.0
+
+# Utilitários
+python-dotenv>=1.0.0
+
+# Aula 04 — embeddings, busca vetorial e APIs (RAG / tool use)
+numpy>=1.24.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+# chromadb 1.x são wheels binárias (cp39-abi3) bloqueadas (403) pelo proxy pip da
+# Databricks; 0.5.x são wheels pure-Python (py3-none-any) e instalam normalmente.
+chromadb>=0.4.0,<0.6.0
+requests>=2.31.0
+
+# Aula 05 — segurança e guardrails com Databricks AI Gateway (hands on no notebook)
+# Os endpoints do Databricks Model Serving (gpt-oss-20b) têm API compatível com OpenAI,
+# então o notebook fala com eles usando ChatOpenAI (langchain-openai, já listado acima).
+# (DATABRICKS_HOST/DATABRICKS_TOKEN e os nomes dos endpoints vão no aula-05/.env)
+
+# Aula 06 — avaliação, monitoramento e observabilidade
+# O notebook `exercicio_eval_observabilidade.ipynb` usa a API REAL do MLflow GenAI
+# (mlflow.genai.evaluate + scorers) com um endpoint da Databricks como modelo juiz, pela
+# VIA NATIVA do AI Gateway (autentica só com DATABRICKS_HOST/TOKEN).
+mlflow>=3.6.0               # mlflow.genai.evaluate, scorers, invoke_judge_model e MLflow Tracing
+# databricks-sdk>=0.30.0    # (opcional) cliente do Databricks Model Serving
+# agentops>=0.3.0           # (opcional) telemetria/observabilidade nativa de agentes
+# opentelemetry-sdk>=1.25.0 # (opcional) tracing padrão (GenAI semantic conventions)
+# O notebook `tracing_mlflow.ipynb` roda offline (stdlib), sem dependências externas.
+
+# Aula 07 — LLMOps: o agente (ResponsesAgent) + registry, CI/CD, serving, monitoramento
+# A Aula 07 roda SEMPRE contra o Databricks (não há modo offline). O agente usa um endpoint
+# Foundation Model (Claude) e a base vetorial usa DatabricksEmbeddings. Requer DATABRICKS_HOST/
+# DATABRICKS_TOKEN (aula-07/.env) e:
+databricks-langchain>=0.4.0  # ChatDatabricks + DatabricksEmbeddings (cérebro e embeddings)
+# langgraph (create_react_agent) e mlflow já listados acima; langchain-core fornece o @tool.
+# databricks-agents>=0.16.0  # (opcional) agents.deploy() para Model Serving
+# (GitHub Actions: ver .github/workflows/ci-cd-agente.yml — não é dependência pip)
+
+# Aula 08 — tópicos avançados (todos opcionais; exemplos rodam só com a stdlib)
+# pyautogen>=0.2.0          # AutoGen: orquestração de sistemas multi-agente
+# transformers>=4.40.0      # HuggingFace: modelos multimodais e quantização
+# accelerate>=0.30.0        # suporte a quantização/inferência
+
+# Notebooks
+# O metapacote `jupyter` puxa `jupyter-server`, que o proxy pip da Databricks bloqueia
+# (403 em todas as versões). Para rodar os .ipynb basta o kernel — use VS Code/Cursor ou
+# `jupyter-lab` não é necessário. `nbconvert` permite exportar/validar os notebooks.
+ipykernel>=6.0.0
+nbconvert>=7.0.0
