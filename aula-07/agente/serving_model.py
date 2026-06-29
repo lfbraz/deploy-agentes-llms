@@ -15,7 +15,7 @@ Este arquivo é o artefato que o MLflow executa ao registrar o agente com a abor
             python_model="agente/serving_model.py",          # <- este arquivo
             resources=[DatabricksServingEndpoint(endpoint_name=CONFIG_PADRAO.endpoint)],
             registered_model_name="main.default.agente_suporte",   # Unity Catalog
-            pip_requirements=["mlflow", "databricks-langchain", "langgraph"],
+            pip_requirements=["mlflow", "databricks-langchain"],
         )
 
 Ao executar este arquivo, o MLflow espera que `set_model(...)` seja chamado com a instância
@@ -30,5 +30,5 @@ from mlflow.models import set_model
 from agente.agente_suporte import construir_agente_databricks
 from agente.config import CONFIG_PADRAO
 
-# Constrói o agente (ChatDatabricks + LangGraph) e o registra como o modelo do artefato.
+# Constrói o agente (ChatDatabricks + loop de decisão) e o registra como o modelo do artefato.
 set_model(construir_agente_databricks(CONFIG_PADRAO))

@@ -11,9 +11,9 @@ anteriores:
     guardrails.py    -> segurança: filtros de ENTRADA (jailbreak/PII) e SAÍDA (vazamento)
     agente_suporte.py-> orquestra tudo num MLflow `ResponsesAgent` (padrão Databricks)
 
-As bibliotecas do Databricks (`databricks-langchain`, `langgraph`) são carregadas de forma
-preguiçosa, ao construir o agente. A autenticação vem do runtime do Databricks ou, localmente,
-de `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (veja o `aula-07/.env.example`).
+A biblioteca `databricks-langchain` é carregada de forma preguiçosa, ao construir o agente. A
+autenticação vem do runtime do Databricks ou, localmente, de `DATABRICKS_HOST`/`DATABRICKS_TOKEN`
+(veja o `aula-07/.env.example`).
 """
 
 # Carrega o aula-07/.env (DATABRICKS_HOST/TOKEN, endpoints) antes de ler o ambiente.

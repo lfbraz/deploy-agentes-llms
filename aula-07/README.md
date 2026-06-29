@@ -28,7 +28,7 @@ O agente é uma **solução de software completa**, reunindo os pilares das aula
 | [`base_vetorial.py`](agente/base_vetorial.py) | RAG (Aula 4) | índice das políticas com **DatabricksEmbeddings** |
 | [`ferramentas.py`](agente/ferramentas.py) | tool use (Aulas 3-4) | `status_pedido`, `frete`, `buscar_politica` (`@tool`) |
 | [`guardrails.py`](agente/guardrails.py) | segurança (Aula 5) | filtros de entrada (jailbreak/PII) e saída (vazamento) |
-| [`agente_suporte.py`](agente/agente_suporte.py) | observabilidade (Aula 6) | `ResponsesAgent` (ChatDatabricks + LangGraph) + trace/feedback |
+| [`agente_suporte.py`](agente/agente_suporte.py) | observabilidade (Aula 6) | `ResponsesAgent` (ChatDatabricks + loop de tool use) + trace/feedback |
 | [`mlflow_databricks.py`](agente/mlflow_databricks.py) | infra | pré-requisitos, tracking/registry no Unity Catalog |
 | [`serving_model.py`](agente/serving_model.py) | deploy | entrypoint *models-from-code* p/ `log_model` / `agents.deploy` |
 
@@ -39,7 +39,7 @@ O agente é uma **solução de software completa**, reunindo os pilares das aula
 1. **Python 3.10+** e as dependências (a partir da raiz do repositório):
 
    ```bash
-   pip install -r requirements.txt        # inclui mlflow, databricks-langchain, langgraph
+   pip install -r requirements.txt        # inclui mlflow e databricks-langchain
    ```
 
 2. **Credenciais do Databricks** — copie o template e preencha:
@@ -83,8 +83,7 @@ python aula-07/src/02_registry_versionamento.py
 ```
 
 **Observe**: cada versão do prompt é **imutável** no Prompt Registry, e **aliases móveis**
-(`champion`, `challenger`) decidem o que vai a produção. Promover e fazer *rollback* viram um
-**reapontamento de ponteiro** — O(1).
+(`champion`, `challenger`) decidem o que vai a produção.
 
 ### Passo 3 — Testar: o gate de aprovação (instruções que devem ser respeitadas)
 

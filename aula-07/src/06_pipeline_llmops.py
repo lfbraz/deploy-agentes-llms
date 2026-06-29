@@ -22,7 +22,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -U mlflow databricks-langchain langgraph
+# MAGIC %pip install -U mlflow databricks-langchain
 
 # COMMAND ----------
 

@@ -2,7 +2,6 @@
 langchain>=1.0.0
 langchain-anthropic>=0.3.0
 langchain-openai>=0.2.0
-langgraph>=0.2.0
 
 # Utilitários
 python-dotenv>=1.0.0
@@ -36,7 +35,7 @@ mlflow>=3.6.0               # mlflow.genai.evaluate, scorers, invoke_judge_model
 # Foundation Model (Claude) e a base vetorial usa DatabricksEmbeddings. Requer DATABRICKS_HOST/
 # DATABRICKS_TOKEN (aula-07/.env) e:
 databricks-langchain>=0.4.0  # ChatDatabricks + DatabricksEmbeddings (cérebro e embeddings)
-# langgraph (create_react_agent) e mlflow já listados acima; langchain-core fornece o @tool.
+# mlflow já listado acima; langchain-core (via databricks-langchain) fornece o @tool e as mensagens.
 # databricks-agents>=0.16.0  # (opcional) agents.deploy() para Model Serving
 # (GitHub Actions: ver .github/workflows/ci-cd-agente.yml — não é dependência pip)
 

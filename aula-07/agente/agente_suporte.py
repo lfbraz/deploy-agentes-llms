@@ -10,9 +10,9 @@ avaliação, deploy e monitoramento integrados. O agente reúne os pilares das a
                                               │
                                        (observabilidade: trace + telemetria + feedback)
 
-O "cérebro" é um endpoint Foundation Model (Claude) via `ChatDatabricks`, orquestrado por um
-grafo LangGraph e servido pela classe `AgenteSuporteResponses(ResponsesAgent)`. O pipeline
-público é a função `responder()`.
+O "cérebro" é um endpoint Foundation Model (Claude) via `ChatDatabricks`. O *tool use* é um
+**loop de decisão explícito** (`bind_tools` → o modelo pede ferramentas → executamos →
+devolvemos a observação até ele concluir), como na Aula 4. O pipeline público é `responder()`.
 """
 
 from __future__ import annotations
@@ -44,7 +44,6 @@ class Resposta:
     tokens: int = 0
 
 
-# Telemetria acumulada no processo (as traces "oficiais" ficam no MLflow do workspace).
 TELEMETRIA: list[Resposta] = []
 FEEDBACKS: list[dict] = []
 
@@ -55,93 +54,97 @@ def limpar_telemetria() -> None:
 
 
 # ---------------------------------------------------------------------------------------
-# Agente "vivo" no Databricks — MLflow ResponsesAgent + LangGraph
+# Cérebro: ChatDatabricks + loop de decisão (tool use)
 # ---------------------------------------------------------------------------------------
-# A classe segue o padrão de referência do MLflow para agentes LangGraph (compatível com o
-# Mosaic AI Agent Framework, AI Playground, Agent Evaluation e Model Serving).
 
 import mlflow  # noqa: E402  (mlflow é dependência da Aula 07)
-from mlflow.pyfunc import ResponsesAgent
-from mlflow.types.responses import (
-    ResponsesAgentRequest,
-    ResponsesAgentResponse,
-    output_to_responses_items_stream,
-    to_chat_completions_input,
-)
+
+# Cache do LLM (com ferramentas) por endpoint — construído uma vez por processo/configuração.
+_LLMS: dict[str, tuple] = {}
 
 
-class AgenteSuporteResponses(ResponsesAgent):
-    """Embrulha um grafo LangGraph na interface ResponsesAgent (predict / predict_stream).
-
-    O `ResponsesAgent` já rastreia `predict`/`predict_stream` automaticamente no MLflow.
-    Cada passo do grafo (LLM, ferramentas) vira um span graças ao `mlflow.langchain.autolog()`
-    chamado em `construir_agente_databricks`.
-    """
-
-    def __init__(self, grafo):
-        self.grafo = grafo
-
-    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
-        itens = [ev.item for ev in self.predict_stream(request)
-                 if ev.type == "response.output_item.done"]
-        return ResponsesAgentResponse(output=itens, custom_outputs=request.custom_inputs)
-
-    def predict_stream(self, request: ResponsesAgentRequest):
-        # Converte a entrada (formato Responses) para mensagens estilo chat-completions.
-        msgs = to_chat_completions_input([i.model_dump() for i in request.input])
-        for _, eventos in self.grafo.stream({"messages": msgs}, stream_mode=["updates"]):
-            for dados_no in eventos.values():
-                yield from output_to_responses_items_stream(chunks=dados_no["messages"])
-
-
-def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteSuporteResponses:
-    """Monta o agente: ChatDatabricks (Claude) + ferramentas + LangGraph."""
-    exigir_databricks(libs=("databricks_langchain", "langgraph"))
+def _construir_llm(config: ConfigAgente):
+    """Monta o ChatDatabricks com as ferramentas vinculadas e o registro nome->ferramenta."""
+    exigir_databricks(libs=("databricks_langchain",))
     configurar_mlflow()
     from databricks_langchain import ChatDatabricks
-    from langgraph.prebuilt import create_react_agent
 
     from .ferramentas import ferramentas_langchain
 
-    mlflow.langchain.autolog()      # tracing automático de cada passo do agente
+    mlflow.langchain.autolog()      # tracing automático de cada chamada ao modelo/ferramenta
     llm = ChatDatabricks(endpoint=config.endpoint, temperature=config.temperatura,
                          max_tokens=config.max_tokens)
-    grafo = create_react_agent(llm, tools=ferramentas_langchain(), prompt=config.system_prompt)
-    return AgenteSuporteResponses(grafo)
+    tools = ferramentas_langchain()
+    return llm.bind_tools(tools), {t.name: t for t in tools}
 
 
-def _texto_de_responses(resp: ResponsesAgentResponse) -> str:
-    """Extrai o texto final dos itens de saída de um ResponsesAgentResponse."""
-    partes: list[str] = []
-    for item in getattr(resp, "output", None) or []:
+def _llm(config: ConfigAgente):
+    if config.endpoint not in _LLMS:
+        _LLMS[config.endpoint] = _construir_llm(config)
+    return _LLMS[config.endpoint]
+
+
+def _loop_decisao(config: ConfigAgente, pergunta: str, max_voltas: int = 5) -> tuple[str, list[str]]:
+    """Loop de tool use: o modelo decide chamar ferramentas; executamos até ele concluir."""
+    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+
+    llm_tools, registro = _llm(config)
+    mensagens = [SystemMessage(config.system_prompt), HumanMessage(pergunta)]
+    ferramentas_usadas: list[str] = []
+
+    resposta = llm_tools.invoke(mensagens)
+    mensagens.append(resposta)
+    voltas = 0
+    while getattr(resposta, "tool_calls", None) and voltas < max_voltas:
+        for tc in resposta.tool_calls:
+            ferramentas_usadas.append(tc["name"])
+            observacao = registro[tc["name"]].invoke(tc["args"])
+            mensagens.append(ToolMessage(str(observacao), tool_call_id=tc["id"]))
+        resposta = llm_tools.invoke(mensagens)
+        mensagens.append(resposta)
+        voltas += 1
+
+    texto = resposta.content if isinstance(resposta.content, str) else str(resposta.content)
+    return texto.strip(), ferramentas_usadas
+
+
+# ---------------------------------------------------------------------------------------
+# Wrapper de serving: MLflow ResponsesAgent
+# ---------------------------------------------------------------------------------------
+
+from mlflow.pyfunc import ResponsesAgent
+from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
+
+
+class AgenteSuporteResponses(ResponsesAgent):
+    """Embrulha o agente na interface ResponsesAgent (para deploy/serving e Agent Evaluation)."""
+
+    def __init__(self, config: ConfigAgente = CONFIG_PADRAO):
+        self.config = config
+
+    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        pergunta = _ultima_pergunta(request)
+        texto, _ = _loop_decisao(self.config, pergunta)
+        return ResponsesAgentResponse(
+            output=[self.create_text_output_item(text=texto, id=uuid.uuid4().hex)])
+
+
+def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
+    """Extrai a última mensagem do usuário do request (formato Responses)."""
+    for item in reversed(list(getattr(request, "input", []) or [])):
         d = item if isinstance(item, dict) else item.model_dump()
-        if d.get("type") == "message":
-            for parte in d.get("content", []):
-                if parte.get("type") in ("output_text", "text"):
-                    partes.append(parte.get("text", ""))
-        elif d.get("type") in ("output_text", "text"):
-            partes.append(d.get("text", ""))
-    return " ".join(t for t in partes if t).strip()
+        if d.get("role") == "user":
+            conteudo = d.get("content")
+            if isinstance(conteudo, str):
+                return conteudo
+            if isinstance(conteudo, list):
+                return " ".join(p.get("text", "") for p in conteudo if isinstance(p, dict))
+    return ""
 
 
-def _ferramentas_de_responses(resp: ResponsesAgentResponse) -> list[str]:
-    """Lista as ferramentas que o agente chamou (itens function_call da trajetória)."""
-    nomes = []
-    for item in getattr(resp, "output", None) or []:
-        d = item if isinstance(item, dict) else item.model_dump()
-        if d.get("type") == "function_call":
-            nomes.append(d.get("name", "ferramenta"))
-    return nomes
-
-
-# Cache do agente por endpoint (construído uma vez por processo/configuração).
-_AGENTES: dict[str, AgenteSuporteResponses] = {}
-
-
-def _agente(config: ConfigAgente) -> AgenteSuporteResponses:
-    if config.endpoint not in _AGENTES:
-        _AGENTES[config.endpoint] = construir_agente_databricks(config)
-    return _AGENTES[config.endpoint]
+def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteSuporteResponses:
+    """Constrói o agente para registro/serving (models-from-code)."""
+    return AgenteSuporteResponses(config)
 
 
 # ---------------------------------------------------------------------------------------
@@ -163,10 +166,7 @@ def responder(pergunta: str, config: ConfigAgente = CONFIG_PADRAO) -> Resposta:
         return resp
 
     # (2) Agente (RAG + tool use), com tracing automático.
-    saida = _agente(config).predict(
-        ResponsesAgentRequest(input=[{"role": "user", "content": ge.texto}]))
-    texto = _texto_de_responses(saida)
-    ferramentas = _ferramentas_de_responses(saida)
+    texto, ferramentas = _loop_decisao(config, ge.texto)
     trace_id = mlflow.get_last_active_trace_id() or f"tr-{uuid.uuid4().hex[:12]}"
 
     # (3) Guardrail de SAÍDA — impede vazamento de PII/segredo na resposta.
