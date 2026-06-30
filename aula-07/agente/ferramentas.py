@@ -48,12 +48,13 @@ def consultar_status_pedido(numero: str) -> str:
     return f"Pedido {n} não encontrado. Confira o número na confirmação de compra."
 
 
-def calcular_frete(cep: str, peso: float = 1.0) -> str:
+def calcular_frete(cep: str, peso: float) -> str:
     """Calcula o valor do frete a partir do CEP de destino e do peso em kg.
 
     Args:
         cep: CEP de destino (8 dígitos), por exemplo '01000-000'.
-        peso: peso do pacote em quilogramas. Padrão 1.0.
+        peso: peso do pacote em quilogramas, por exemplo 1.0. (Sem valor padrão: a UC Function
+            do Unity Catalog não aceita parâmetros com default; quando não souber, passe 1.0.)
     """
     import re
 
