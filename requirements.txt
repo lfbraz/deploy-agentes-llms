@@ -30,14 +30,17 @@ mlflow>=3.6.0               # mlflow.genai.evaluate, scorers, invoke_judge_model
 # opentelemetry-sdk>=1.25.0 # (opcional) tracing padrão (GenAI semantic conventions)
 # O notebook `tracing_mlflow.ipynb` roda offline (stdlib), sem dependências externas.
 
-# Aula 07 — LLMOps: o agente (ResponsesAgent) + registry, CI/CD, serving, monitoramento
+# Aula 07 — LLMOps: o agente (ResponsesAgent) + UC tools, Vector Search, registry, CI/CD, serving
 # A Aula 07 roda SEMPRE contra o Databricks (não há modo offline). O agente usa um endpoint
-# Foundation Model (Claude) e a base vetorial usa DatabricksEmbeddings. Requer DATABRICKS_HOST/
-# DATABRICKS_TOKEN (aula-07/.env) e:
-databricks-langchain>=0.4.0  # ChatDatabricks + DatabricksEmbeddings (cérebro e embeddings)
-# mlflow já listado acima; langchain-core (via databricks-langchain) fornece o @tool e as mensagens.
-# databricks-agents>=0.16.0  # (opcional) agents.deploy() para Model Serving
-# (GitHub Actions: ver .github/workflows/ci-cd-agente.yml — não é dependência pip)
+# Foundation Model (Claude), tools como UC Functions e RAG por Vector Search. Requer
+# DATABRICKS_HOST/DATABRICKS_TOKEN (aula-07/.env) e:
+databricks-langchain>=0.4.0    # ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
+databricks-vectorsearch>=0.40  # VectorSearchClient: criar/consultar o índice de AI Search (RAG)
+unitycatalog-ai>=0.3.0         # DatabricksFunctionClient: registrar/usar UC Functions como tools
+pytest>=8.0.0                  # gate de aprovação (testes unitários do agente) — exemplo 04 + CI
+# mlflow já listado acima; langchain-core (via databricks-langchain) fornece as mensagens.
+# databricks-agents>=1.1.0     # agents.deploy() para Model Serving (exemplo 05; instalado no notebook)
+# (GitHub Actions: ver aula-07/ci/ci-cd-agente.yml — não é dependência pip)
 
 # Aula 08 — tópicos avançados (todos opcionais; exemplos rodam só com a stdlib)
 # pyautogen>=0.2.0          # AutoGen: orquestração de sistemas multi-agente

@@ -1,21 +1,22 @@
 """
-mlflow_databricks.py — configuração e pré-requisitos do ambiente
-================================================================
+mlflow_databricks.py — a conversa do agente com o Databricks/MLflow
+===================================================================
 
-Centraliza a integração com o Databricks/MLflow:
+Este é o módulo que arruma a casa antes de qualquer coisa rodar. Ele faz duas tarefas chatas
+porém essenciais: confere se temos credencial e as bibliotecas na mão (e, quando falta algo,
+avisa em bom português em vez de deixar estourar um `ImportError` ou um `401` enigmático) e
+aponta o MLflow para os lugares certos — o tracking no workspace e o registry no Unity Catalog.
 
-  • checagem de pré-requisitos (credenciais + bibliotecas), com mensagem clara quando algo
-    falta — em vez de um `ImportError` ou `401` obscuro;
-  • configuração do MLflow (tracking no workspace, registry no Unity Catalog);
-  • montagem dos nomes de três níveis do Unity Catalog (`catalogo.schema.objeto`).
-
-Dentro de um workspace Databricks, a autenticação vem do próprio runtime; rodando localmente,
-use `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (veja o `aula-07/.env.example`).
+Dentro de um workspace Databricks a autenticação já vem de graça pelo runtime; rodando na sua
+máquina, basta o `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (veja o `aula-07/.env.example`). Os nomes
+de três níveis do Unity Catalog moram no `config.py`.
 """
 
 from __future__ import annotations
 
 import os
+
+from .config import uc  # nomes de três níveis do Unity Catalog
 
 
 def em_databricks() -> bool:
@@ -29,7 +30,7 @@ def credenciais_ok() -> bool:
 
 
 def exigir_databricks(libs: tuple[str, ...] = ()) -> None:
-    """Valida credenciais e bibliotecas; levanta um erro orientativo se faltar algo."""
+    """Confere credenciais e bibliotecas e, se faltar algo, diz exatamente o que fazer."""
     if not credenciais_ok():
         raise RuntimeError(
             "Defina DATABRICKS_HOST e DATABRICKS_TOKEN no arquivo aula-07/.env "
@@ -37,10 +38,18 @@ def exigir_databricks(libs: tuple[str, ...] = ()) -> None:
         )
     faltando = [lib for lib in libs if not _tem(lib)]
     if faltando:
-        pacotes = " ".join(m.replace("_", "-") for m in faltando)
+        pacotes = " ".join(_PACOTE_PIP.get(m, m.replace("_", "-")) for m in faltando)
         raise RuntimeError(
             f"Bibliotecas ausentes: {', '.join(faltando)}. Instale com: pip install {pacotes}"
         )
+
+
+# Nem sempre o nome do import bate com o do pacote pip — este de-para deixa a dica de erro certa.
+_PACOTE_PIP = {
+    "databricks_langchain": "databricks-langchain",
+    "databricks.vector_search": "databricks-vectorsearch",
+    "unitycatalog": "unitycatalog-ai",
+}
 
 
 def _tem(lib: str) -> bool:
@@ -55,7 +64,7 @@ _CONFIGURADO = False
 
 
 def configurar_mlflow() -> None:
-    """Aponta o MLflow para o workspace (tracking) e o Unity Catalog (registry)."""
+    """Aponta o MLflow para os lugares certos: tracking no workspace, registry no Unity Catalog."""
     global _CONFIGURADO
     if _CONFIGURADO:
         return
@@ -71,13 +80,6 @@ def configurar_mlflow() -> None:
     _CONFIGURADO = True
 
 
-def _catalogo_schema() -> str:
-    """Catálogo.schema a partir de MODELO_UC (ex.: 'main.default.agente_suporte' -> 'main.default')."""
-    base = os.getenv("MODELO_UC", "main.default.agente_suporte")
-    partes = base.split(".")
-    return ".".join(partes[:2]) if len(partes) >= 2 else "main.default"
-
-
 def nome_uc(objeto: str) -> str:
-    """Nome de três níveis do Unity Catalog para um objeto (modelo/prompt)."""
-    return f"{_catalogo_schema()}.{objeto}"
+    """Nome de três níveis do Unity Catalog para um objeto (compatibilidade: ver config.uc)."""
+    return uc(objeto)

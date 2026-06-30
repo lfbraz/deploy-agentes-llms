@@ -1,43 +1,62 @@
 """
-ferramentas.py — tool use: as ferramentas que o agente pode chamar
-==================================================================
+ferramentas.py — tool use com **Unity Catalog Functions**
+=========================================================
 
-Retomamos as Aulas 3 e 4 (loop de decisão e *tool use*). O agente não responde tudo "de
-cabeça": quando precisa de um dado, ele DECIDE chamar uma ferramenta. Definimos três:
+Voltamos às Aulas 3-4 (loop de decisão e *tool use*): o agente não tenta responder tudo "de
+cabeça"; quando falta um dado, ele decide ir buscar com uma ferramenta. No Databricks Agent
+Framework, o jeito governado de oferecer uma ferramenta é registrá-la como **UC Function** no
+Unity Catalog — vira um artefato com permissão, linhagem e busca, que qualquer agente pode
+reaproveitar. Aqui temos duas:
 
-  • `consultar_status_pedido(numero)` — consulta um "sistema de pedidos" (simulado);
-  • `calcular_frete(cep, peso)`        — calcula frete por região/peso (regra simulada);
-  • `buscar_politica(pergunta)`        — recupera a política da loja na base vetorial (RAG).
+  • `consultar_status_pedido(numero)` — pergunta ao "sistema de pedidos" (que aqui é simulado);
+  • `calcular_frete(cep, peso)`        — faz a conta do frete por região e peso.
 
-Cada ferramenta é uma função Python pura; `ferramentas_langchain()` as embrulha como
-ferramentas LangChain (`@tool`) e as entrega ao grafo do agente, que decide quando chamá-las.
-O import do LangChain é lazy (acontece só ao construir o agente).
+Repare que as funções são **autossuficientes** (carregam type hints, docstring e os imports no
+próprio corpo): é assim que o `DatabricksFunctionClient.create_python_function` consegue
+empacotá-las para o Unity Catalog. A busca na base de conhecimento (o RAG) fica de fora dessa
+turma — ela não é uma UC Function, e sim a `VectorSearchRetrieverTool` (veja `base_vetorial.py`).
+No fim, o agente recebe as duas coisas juntas: as UC Functions mais o retriever (veja
+`agente_suporte.py`).
 """
 
 from __future__ import annotations
 
-import re
+from .config import FUNC_CALCULAR_FRETE, FUNC_STATUS_PEDIDO, SCHEMA, CATALOGO
+from .mlflow_databricks import exigir_databricks
 
-from .base_vetorial import recuperar
 
-# "Banco de pedidos" simulado (em produção, uma chamada de API/SQL com timeout e retry).
-_PEDIDOS = {
-    "1001": "em separação no centro de distribuição",
-    "1002": "a caminho — previsão de entrega em 2 dias úteis",
-    "1003": "entregue em 12/06",
-}
-
+# ---------------------------------------------------------------------------------------
+# As funções de negócio — cada uma se basta sozinha para virar uma UC Function.
+# ---------------------------------------------------------------------------------------
 
 def consultar_status_pedido(numero: str) -> str:
-    """Consulta o status de um pedido pelo número. Ex.: numero='1002'."""
-    numero = re.sub(r"\D", "", str(numero))
-    if numero in _PEDIDOS:
-        return f"Pedido {numero}: {_PEDIDOS[numero]}."
-    return f"Pedido {numero} não encontrado. Confira o número na confirmação de compra."
+    """Consulta o status de um pedido pelo número no sistema de pedidos da loja.
+
+    Args:
+        numero: número do pedido a consultar, por exemplo '1002'.
+    """
+    import re
+
+    pedidos = {
+        "1001": "em separação no centro de distribuição",
+        "1002": "a caminho — previsão de entrega em 2 dias úteis",
+        "1003": "entregue em 12/06",
+    }
+    n = re.sub(r"\D", "", str(numero))
+    if n in pedidos:
+        return f"Pedido {n}: {pedidos[n]}."
+    return f"Pedido {n} não encontrado. Confira o número na confirmação de compra."
 
 
 def calcular_frete(cep: str, peso: float = 1.0) -> str:
-    """Calcula o frete por CEP e peso (kg). Ex.: cep='01000-000', peso=2.0."""
+    """Calcula o valor do frete a partir do CEP de destino e do peso em kg.
+
+    Args:
+        cep: CEP de destino (8 dígitos), por exemplo '01000-000'.
+        peso: peso do pacote em quilogramas. Padrão 1.0.
+    """
+    import re
+
     digitos = re.sub(r"\D", "", str(cep))
     if len(digitos) < 8:
         return "CEP inválido — informe os 8 dígitos."
@@ -51,34 +70,46 @@ def calcular_frete(cep: str, peso: float = 1.0) -> str:
     return f"Frete para o CEP {digitos} ({regiao}, {peso:.1f} kg): R$ {valor:.2f}."
 
 
-def buscar_politica(pergunta: str) -> str:
-    """Busca na base de conhecimento da loja (políticas/FAQ) e devolve os trechos relevantes."""
-    trechos = recuperar(pergunta, k=2)
-    if not trechos:
-        return "Nenhuma política relevante encontrada."
-    return " ".join(trechos)
+# ---------------------------------------------------------------------------------------
+# O cliente que cria e executa as UC Functions no Unity Catalog.
+# ---------------------------------------------------------------------------------------
+
+_CLIENTE = None
 
 
-def ferramentas_langchain():
-    """Embrulha as funções como ferramentas LangChain (`@tool`) para o agente.
+def cliente_uc():
+    """Monta o `DatabricksFunctionClient` uma vez só e o deixa como cliente padrão das tools."""
+    global _CLIENTE
+    if _CLIENTE is not None:
+        return _CLIENTE
+    exigir_databricks(libs=("unitycatalog",))
+    from unitycatalog.ai.core.base import set_uc_function_client
+    from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
-    Import preguiçoso: só é chamado quando o agente Databricks é construído (libs presentes).
+    _CLIENTE = DatabricksFunctionClient()
+    set_uc_function_client(_CLIENTE)   # é este cliente que o UCFunctionToolkit vai usar
+    return _CLIENTE
+
+
+def registrar_uc_functions() -> list[str]:
+    """Sobe as funções para o Unity Catalog como UC Functions (e devolve os nomes criados).
+
+    Pode rodar à vontade: o `replace=True` simplesmente regrava a definição.
     """
-    from langchain_core.tools import tool
+    client = cliente_uc()
+    for func in (consultar_status_pedido, calcular_frete):
+        client.create_python_function(func=func, catalog=CATALOGO, schema=SCHEMA, replace=True)
+    return [FUNC_STATUS_PEDIDO, FUNC_CALCULAR_FRETE]
 
-    @tool
-    def status_pedido(numero: str) -> str:
-        """Consulta o status de um pedido pelo número (ex.: '1002')."""
-        return consultar_status_pedido(numero)
 
-    @tool
-    def frete(cep: str, peso: float = 1.0) -> str:
-        """Calcula o frete por CEP (8 dígitos) e peso em kg."""
-        return calcular_frete(cep, peso)
+def tools_uc():
+    """Transforma as UC Functions em tools de agente, via `UCFunctionToolkit`.
 
-    @tool
-    def politica(pergunta: str) -> str:
-        """Busca a política/FAQ da loja na base de conhecimento (troca, frete, garantia, reembolso)."""
-        return buscar_politica(pergunta)
+    O toolkit puxa a assinatura e a descrição direto do Unity Catalog — e a mesma tool já sai
+    pronta para LangChain, LlamaIndex ou os SDKs da OpenAI/Anthropic, sem retrabalho.
+    """
+    cliente_uc()
+    from databricks_langchain import UCFunctionToolkit
 
-    return [status_pedido, frete, politica]
+    toolkit = UCFunctionToolkit(function_names=[FUNC_STATUS_PEDIDO, FUNC_CALCULAR_FRETE])
+    return toolkit.tools

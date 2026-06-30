@@ -1,13 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Passo 2 — Registrar e versionar o agente (MLflow Prompt Registry)
+# MAGIC # Passo 2 — Versionar o prompt (MLflow Prompt Registry no Unity Catalog)
 # MAGIC
-# MAGIC Com o agente pronto, o segundo passo é **versionar**. Diferente do MLOps clássico (onde se
-# MAGIC versiona pesos de um modelo treinado), num agente LLM o artefato que mais muda é o **prompt**.
-# MAGIC Usamos o **MLflow Prompt Registry** no **Unity Catalog**, que dá versionamento imutável estilo
-# MAGIC Git + **aliases móveis**:
+# MAGIC Diferente do MLOps clássico (onde se versiona pesos de um modelo treinado), num agente LLM o
+# MAGIC artefato que mais muda é o **prompt**. Usamos o **MLflow Prompt Registry** no **Unity Catalog**,
+# MAGIC que dá versionamento imutável estilo Git + **aliases móveis**:
 # MAGIC
 # MAGIC - `register_prompt(name, template, ...)` cria uma versão **imutável** (v1, v2, v3...);
+# MAGIC - o template usa a sintaxe **`{{variável}}`** — preenchida em tempo de execução com `format()`;
 # MAGIC - `set_prompt_alias(name, alias, version)` move um alias (`champion`, `challenger`);
 # MAGIC - `load_prompt("prompts:/<name>@<alias>")` é como o código de produção resolve a versão.
 # MAGIC
@@ -18,8 +18,6 @@
 
 # MAGIC %md
 # MAGIC ## Ambiente
-# MAGIC O mlflow do runtime do Databricks pode ser antigo demais para o `ResponsesAgent` e o
-# MAGIC `mlflow.genai`. Instalamos as versões atuais no cluster e reiniciamos o Python.
 
 # COMMAND ----------
 
@@ -27,7 +25,6 @@
 
 # COMMAND ----------
 
-# Reinicia o Python para carregar as versões recém-instaladas (apenas no Databricks).
 try:
     dbutils.library.restartPython()  # noqa: F821
 except NameError:
@@ -50,36 +47,34 @@ while _dir != os.path.dirname(_dir):
 
 import mlflow
 
-from agente.config import CONFIG_PADRAO
-from agente.mlflow_databricks import configurar_mlflow, credenciais_ok, nome_uc
+from agente.config import LOJA, PROMPT_UC, SYSTEM_PROMPT_PADRAO
+from agente.mlflow_databricks import configurar_mlflow, credenciais_ok
 
 if not credenciais_ok():
     raise SystemExit("Configure DATABRICKS_HOST/TOKEN no aula-07/.env (veja o .env.example).")
 
 configurar_mlflow()
-NOME_PROMPT = nome_uc("agente_suporte_prompt")     # ex.: main.default.agente_suporte_prompt
-print("prompt registrado em:", NOME_PROMPT)
+print("prompt registrado em:", PROMPT_UC)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Três versões do prompt (a tripla evoluindo)
+# MAGIC ## Três versões do prompt (a "tripla" evoluindo)
 # MAGIC
-# MAGIC Cada `register_prompt` no mesmo nome incrementa a versão. Guardamos a configuração de geração
-# MAGIC (endpoint, temperatura) nas *tags* da versão.
+# MAGIC Cada `register_prompt` no mesmo nome incrementa a versão. O template mantém a variável
+# MAGIC `{{loja}}`. Guardamos metadados úteis (autor, endpoint testado) nas *tags* da versão.
 
 # COMMAND ----------
 
 def registrar_versao(template, autor):
     return mlflow.genai.register_prompt(
-        name=NOME_PROMPT, template=template, commit_message=f"versão por {autor}",
-        tags={"autor": autor, "endpoint": CONFIG_PADRAO.endpoint,
-              "temperatura": str(CONFIG_PADRAO.temperatura)})
+        name=PROMPT_UC, template=template, commit_message=f"versão por {autor}",
+        tags={"autor": autor, "tested_with": "databricks-claude-sonnet-4-5"})
 
-v1 = registrar_versao("Você é um atendente. Responda em 1 frase.", "luiz")
-v2 = registrar_versao("Você é um atendente cordial. Responda em 1 frase e cite a política.", "luiz")
-v3 = registrar_versao("Você é um atendente cordial. Responda em 1 frase, cite a política e "
-                      "ofereça o próximo passo.", "ana")
+v1 = registrar_versao("Você é o atendente da loja {{loja}}. Responda em 1 frase.", "luiz")
+v2 = registrar_versao("Você é o atendente cordial da loja {{loja}}. Responda em 1 frase e cite "
+                      "a política quando houver.", "luiz")
+v3 = registrar_versao(SYSTEM_PROMPT_PADRAO, "ana")   # o prompt completo do agente (config.py)
 print(f"versões registradas: v{v1.version}, v{v2.version}, v{v3.version}")
 
 # COMMAND ----------
@@ -87,17 +82,19 @@ print(f"versões registradas: v{v1.version}, v{v2.version}, v{v3.version}")
 # MAGIC %md
 # MAGIC ## Aliases: o que está em produção
 # MAGIC
-# MAGIC O código de produção resolve pelo **alias**, nunca pelo número da versão.
+# MAGIC O código de produção resolve pelo **alias**, nunca pelo número da versão. Ao carregar, usamos
+# MAGIC `format(loja=...)` para preencher a variável `{{loja}}`.
 
 # COMMAND ----------
 
-def resolver(alias):
-    return mlflow.genai.load_prompt(f"prompts:/{NOME_PROMPT}@{alias}")
+mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v2.version)
+mlflow.genai.set_prompt_alias(PROMPT_UC, alias="challenger", version=v3.version)
 
-mlflow.genai.set_prompt_alias(NOME_PROMPT, alias="champion", version=v2.version)
-mlflow.genai.set_prompt_alias(NOME_PROMPT, alias="challenger", version=v3.version)
-print("champion   -> v", resolver("champion").version)
-print("challenger -> v", resolver("challenger").version)
+champion = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion")
+challenger = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@challenger")
+print("champion   -> v", champion.version)
+print("challenger -> v", challenger.version)
+print("\nprompt champion formatado:\n  ", champion.format(loja=LOJA)[:120], "...")
 
 # COMMAND ----------
 
@@ -106,17 +103,19 @@ print("challenger -> v", resolver("challenger").version)
 
 # COMMAND ----------
 
-# O challenger venceu os testes -> promover a champion.
-mlflow.genai.set_prompt_alias(NOME_PROMPT, alias="champion", version=v3.version)
-print("após promover, champion -> v", resolver("champion").version)
+# O challenger se saiu melhor nos testes -> vamos promovê-lo a champion.
+mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v3.version)
+print("após promover, champion -> v",
+      mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion").version)
 
-# Incidente em produção -> rollback imediato para a versão anterior.
-mlflow.genai.set_prompt_alias(NOME_PROMPT, alias="champion", version=v2.version)
-print("após rollback, champion -> v", resolver("champion").version)
+# Deu ruim em produção -> rollback na hora, voltando para a versão anterior.
+mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v2.version)
+print("após rollback, champion -> v",
+      mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion").version)
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC Versione o prompt como artefato **imutável** e deixe aliases móveis decidirem o que vai a
 # MAGIC produção. Deploy e rollback viram um reapontamento de ponteiro — a base de *blue-green* e
-# MAGIC *champion/challenger*.
+# MAGIC *champion/challenger*. No serving (Passo 5), o agente carrega o prompt pelo alias `champion`.

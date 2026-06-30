@@ -2,17 +2,20 @@
 agente_suporte.py — o agente embrulhado num MLflow `ResponsesAgent`
 ===================================================================
 
-Costura tudo num único agente, seguindo o caminho recomendado pelo **Databricks Agent
-Framework**: autorar com a interface **`ResponsesAgent`** do MLflow para ganhar *tracing*,
-avaliação, deploy e monitoramento integrados. O agente reúne os pilares das aulas:
+Costura tudo num único agente, no caminho que o **Databricks Agent Framework** recomenda: autorar
+na interface **`ResponsesAgent`** do MLflow já traz *tracing*, avaliação, deploy e monitoramento
+de brinde. É aqui que os pilares das aulas anteriores se encontram:
 
-    ENTRADA → [guardrail de entrada] → [agente: RAG + tool use] → [guardrail de saída] → SAÍDA
-                                              │
-                                       (observabilidade: trace + telemetria + feedback)
+    PERGUNTA ──►  agente (LLM + tool use: UC Functions + Vector Search RAG)  ──►  RESPOSTA
+                                         │
+                            observabilidade: mlflow.langchain.autolog()
 
-O "cérebro" é um endpoint Foundation Model (Claude) via `ChatDatabricks`. O *tool use* é um
-**loop de decisão explícito** (`bind_tools` → o modelo pede ferramentas → executamos →
-devolvemos a observação até ele concluir), como na Aula 4. O pipeline público é `responder()`.
+O "cérebro" é um endpoint Foundation Model (Claude) acessado pelo `ChatDatabricks`. As ferramentas
+são as **UC Functions** (`ferramentas.py`) e o **retriever de Vector Search** (`base_vetorial.py`).
+O *tool use* não tem mágica: é um **loop explícito** (`bind_tools` → o modelo pede uma ferramenta →
+a gente executa → devolve o resultado → repete até ele concluir), igual à Aula 4. E a observabilidade
+sai de graça com o `mlflow.langchain.autolog()`: cada ida ao modelo ou a uma ferramenta vira um
+*span* dentro da trace.
 """
 
 from __future__ import annotations
@@ -21,60 +24,55 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from .config import CONFIG_PADRAO, ConfigAgente
-from .guardrails import guardrail_entrada, guardrail_saida
+import mlflow
+
+from .config import CONFIG_PADRAO, LOJA, ConfigAgente
 from .mlflow_databricks import configurar_mlflow, exigir_databricks
 
 
 # ---------------------------------------------------------------------------------------
-# Resultado e telemetria
+# A resposta e a telemetria que acompanham cada pergunta.
 # ---------------------------------------------------------------------------------------
 
 @dataclass
 class Resposta:
-    """Saída do agente + a observabilidade daquela requisição (uma 'trace')."""
+    """O que o agente respondeu, junto com o rastro daquela requisição (a 'trace')."""
 
     pergunta: str
     texto: str
     trace_id: str
     ferramentas_usadas: list[str] = field(default_factory=list)
-    bloqueado: bool = False
-    motivo_guardrail: str = "ok"
     latencia_ms: float = 0.0
-    tokens: int = 0
 
 
 TELEMETRIA: list[Resposta] = []
-FEEDBACKS: list[dict] = []
 
 
 def limpar_telemetria() -> None:
     TELEMETRIA.clear()
-    FEEDBACKS.clear()
 
 
 # ---------------------------------------------------------------------------------------
-# Cérebro: ChatDatabricks + loop de decisão (tool use)
+# O cérebro: ChatDatabricks + as tools (UC Functions + Vector Search) + o loop de decisão.
 # ---------------------------------------------------------------------------------------
 
-import mlflow  # noqa: E402  (mlflow é dependência da Aula 07)
-
-# Cache do LLM (com ferramentas) por endpoint — construído uma vez por processo/configuração.
+# Guardamos o LLM já com as ferramentas plugadas, para não remontar tudo a cada pergunta.
 _LLMS: dict[str, tuple] = {}
 
 
 def _construir_llm(config: ConfigAgente):
-    """Monta o ChatDatabricks com as ferramentas vinculadas e o registro nome->ferramenta."""
+    """Liga o ChatDatabricks às ferramentas e guarda um de-para nome->ferramenta para o loop."""
     exigir_databricks(libs=("databricks_langchain",))
     configurar_mlflow()
     from databricks_langchain import ChatDatabricks
 
-    from .ferramentas import ferramentas_langchain
+    from .base_vetorial import retriever_tool
+    from .ferramentas import tools_uc
 
-    mlflow.langchain.autolog()      # tracing automático de cada chamada ao modelo/ferramenta
+    mlflow.langchain.autolog()      # com isso, modelo e tools já saem rastreados de graça
     llm = ChatDatabricks(endpoint=config.endpoint, temperature=config.temperatura,
                          max_tokens=config.max_tokens)
-    tools = ferramentas_langchain()
+    tools = list(tools_uc()) + [retriever_tool()]     # as UC Functions mais o retriever do RAG
     return llm.bind_tools(tools), {t.name: t for t in tools}
 
 
@@ -85,7 +83,7 @@ def _llm(config: ConfigAgente):
 
 
 def _loop_decisao(config: ConfigAgente, pergunta: str, max_voltas: int = 5) -> tuple[str, list[str]]:
-    """Loop de tool use: o modelo decide chamar ferramentas; executamos até ele concluir."""
+    """O vaivém do tool use: o modelo pede uma ferramenta, a gente executa e devolve, até ele fechar."""
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     llm_tools, registro = _llm(config)
@@ -109,7 +107,7 @@ def _loop_decisao(config: ConfigAgente, pergunta: str, max_voltas: int = 5) -> t
 
 
 # ---------------------------------------------------------------------------------------
-# Wrapper de serving: MLflow ResponsesAgent
+# A embalagem para o serving: o MLflow ResponsesAgent (deploy, serving e Agent Evaluation).
 # ---------------------------------------------------------------------------------------
 
 from mlflow.pyfunc import ResponsesAgent
@@ -117,7 +115,7 @@ from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 
 
 class AgenteSuporteResponses(ResponsesAgent):
-    """Embrulha o agente na interface ResponsesAgent (para deploy/serving e Agent Evaluation)."""
+    """Veste o agente com a interface ResponsesAgent — o padrão do Databricks Agent Framework."""
 
     def __init__(self, config: ConfigAgente = CONFIG_PADRAO):
         self.config = config
@@ -130,7 +128,7 @@ class AgenteSuporteResponses(ResponsesAgent):
 
 
 def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
-    """Extrai a última mensagem do usuário do request (formato Responses)."""
+    """Pesca a última fala do usuário lá no request (que vem no formato Responses)."""
     for item in reversed(list(getattr(request, "input", []) or [])):
         d = item if isinstance(item, dict) else item.model_dump()
         if d.get("role") == "user":
@@ -143,52 +141,40 @@ def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
 
 
 def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteSuporteResponses:
-    """Constrói o agente para registro/serving (models-from-code)."""
+    """Entrega o agente prontinho para registrar e servir (models-from-code)."""
     return AgenteSuporteResponses(config)
 
 
 # ---------------------------------------------------------------------------------------
-# Interface pública: o pipeline completo (guardrails + agente + observabilidade)
+# A porta de entrada: conversar com o agente e registrar o feedback de quem usou.
 # ---------------------------------------------------------------------------------------
 
 def responder(pergunta: str, config: ConfigAgente = CONFIG_PADRAO) -> Resposta:
-    """Executa o pipeline completo e devolve a `Resposta` com a telemetria da requisição."""
+    """Roda o agente e devolve a `Resposta`, já com o rastro (trace) daquela requisição."""
     t0 = time.perf_counter()
-
-    # (1) Guardrail de ENTRADA — barra jailbreak/PII ANTES de gastar uma chamada de LLM.
-    ge = guardrail_entrada(pergunta)
-    if ge.bloqueado:
-        resp = Resposta(pergunta, "Desculpe, não posso ajudar com esse pedido.",
-                        trace_id=f"tr-local-{uuid.uuid4().hex[:8]}", ferramentas_usadas=[],
-                        bloqueado=True, motivo_guardrail=ge.motivo,
-                        latencia_ms=(time.perf_counter() - t0) * 1000, tokens=0)
-        TELEMETRIA.append(resp)
-        return resp
-
-    # (2) Agente (RAG + tool use), com tracing automático.
-    texto, ferramentas = _loop_decisao(config, ge.texto)
+    texto, ferramentas = _loop_decisao(config, pergunta)
     trace_id = mlflow.get_last_active_trace_id() or f"tr-{uuid.uuid4().hex[:12]}"
-
-    # (3) Guardrail de SAÍDA — impede vazamento de PII/segredo na resposta.
-    gs = guardrail_saida(texto)
-    texto_final = gs.texto if (gs.bloqueado or gs.sinais) else texto
-    motivo = ge.motivo if ge.sinais else gs.motivo
-
     resp = Resposta(
-        pergunta=pergunta, texto=texto_final, trace_id=trace_id,
-        ferramentas_usadas=ferramentas, bloqueado=gs.bloqueado, motivo_guardrail=motivo,
-        latencia_ms=(time.perf_counter() - t0) * 1000,
-        tokens=max(1, (len(ge.texto) + len(texto_final)) // 4),
+        pergunta=pergunta, texto=texto, trace_id=trace_id,
+        ferramentas_usadas=ferramentas, latencia_ms=(time.perf_counter() - t0) * 1000,
     )
     TELEMETRIA.append(resp)
     return resp
 
 
-def registrar_feedback(resp: Resposta, util: bool, comentario: str = "") -> None:
-    """Registra feedback do usuário (👍/👎) como uma *assessment* ligada à trace no MLflow."""
-    FEEDBACKS.append({"trace_id": resp.trace_id, "util": util, "comentario": comentario})
-    try:
-        mlflow.log_feedback(trace_id=resp.trace_id, name="user_thumbs",
-                            value=bool(util), rationale=comentario or None)
-    except Exception:
-        pass
+def registrar_feedback(resp: Resposta, util: bool, comentario: str = "",
+                       usuario: str = "cliente@acme.com") -> None:
+    """Anexa o 👍/👎 do usuário à trace, como uma *assessment* HUMANA.
+
+    É o **human feedback** do MLflow 3: o veredito de quem usou fica grudado na trace e vira
+    combustível para a avaliação e para montar *golden sets* (veja a Aula 6).
+    """
+    from mlflow.entities import AssessmentSource
+
+    mlflow.log_feedback(
+        trace_id=resp.trace_id,
+        name="user_feedback",
+        value=bool(util),
+        source=AssessmentSource(source_type="HUMAN", source_id=usuario),
+        rationale=comentario or None,
+    )

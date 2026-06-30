@@ -2,27 +2,38 @@
 serving_model.py — entrypoint "models-from-code" do MLflow para o agente
 ========================================================================
 
-Este arquivo é o artefato que o MLflow executa ao registrar o agente com a abordagem
-*models-from-code*:
+Este é o arquivinho que o MLflow roda na hora de registrar o agente pela abordagem
+*models-from-code*. A única regra do jogo: ao executá-lo, o MLflow espera encontrar um
+`set_model(...)` apontando para a instância do agente.
+
+No registro, a gente lista os **recursos governados** que o agente usa (o exemplo 05 traz o
+`log_model` por inteiro) — é o que permite ao serving herdar as credenciais sozinho, via
+*automatic authentication*:
 
     import mlflow
-    from mlflow.models.resources import DatabricksServingEndpoint
-    from agente.config import CONFIG_PADRAO
+    from mlflow.models.resources import (
+        DatabricksServingEndpoint, DatabricksVectorSearchIndex, DatabricksFunction)
+    from agente.config import (ENDPOINT_LLM, ENDPOINT_EMBEDDINGS, INDICE_POLITICAS,
+                               FUNC_STATUS_PEDIDO, FUNC_CALCULAR_FRETE, MODELO_UC)
 
     with mlflow.start_run():
         info = mlflow.pyfunc.log_model(
-            name="agente-suporte",
+            name="agente_suporte",
             python_model="agente/serving_model.py",          # <- este arquivo
-            resources=[DatabricksServingEndpoint(endpoint_name=CONFIG_PADRAO.endpoint)],
-            registered_model_name="main.default.agente_suporte",   # Unity Catalog
-            pip_requirements=["mlflow", "databricks-langchain"],
+            resources=[
+                DatabricksServingEndpoint(endpoint_name=ENDPOINT_LLM),
+                DatabricksServingEndpoint(endpoint_name=ENDPOINT_EMBEDDINGS),
+                DatabricksVectorSearchIndex(index_name=INDICE_POLITICAS),
+                DatabricksFunction(function_name=FUNC_STATUS_PEDIDO),
+                DatabricksFunction(function_name=FUNC_CALCULAR_FRETE),
+            ],
+            registered_model_name=MODELO_UC,                  # Unity Catalog
+            pip_requirements=["mlflow", "databricks-langchain", "databricks-vectorsearch",
+                              "unitycatalog-ai"],
         )
 
-Ao executar este arquivo, o MLflow espera que `set_model(...)` seja chamado com a instância
-do agente. Em seguida, o deploy para Model Serving é feito com:
-
     from databricks import agents
-    agents.deploy("main.default.agente_suporte", info.registered_model_version)
+    agents.deploy(MODELO_UC, info.registered_model_version)   # Model Serving
 """
 
 from mlflow.models import set_model
@@ -30,5 +41,6 @@ from mlflow.models import set_model
 from agente.agente_suporte import construir_agente_databricks
 from agente.config import CONFIG_PADRAO
 
-# Constrói o agente (ChatDatabricks + loop de decisão) e o registra como o modelo do artefato.
+# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e diz ao MLflow:
+# "é este aqui o modelo do artefato".
 set_model(construir_agente_databricks(CONFIG_PADRAO))

@@ -1,25 +1,34 @@
 """
-base_vetorial.py — a base de conhecimento do agente (RAG) com embeddings do Databricks
-======================================================================================
+base_vetorial.py — RAG com **Databricks AI Search (Mosaic AI Vector Search)**
+=============================================================================
 
-Retomamos a Aula 4 (bancos vetoriais e RAG). O agente não "sabe" a política da loja: ele a
-RECUPERA de uma base de conhecimento indexada por embeddings e responde fundamentado nela.
+Voltamos à Aula 4 (bancos vetoriais e RAG). O agente não decora a política da loja: ele vai
+buscá-la numa base de conhecimento e responde com base no que encontrou. A diferença para a Aula 4
+é o lar dessa base — agora ela é um **índice de Vector Search**, governado pelo Unity Catalog, e
+não mais um índice solto na memória:
 
-Os embeddings vêm do Databricks (Foundation Model API) via `DatabricksEmbeddings`, e o índice é
-mantido em memória com `numpy` (produto interno = similaridade do cosseno). Em produção, esta
-camada corresponde ao **Databricks Vector Search** (com `DatabricksVectorSearchIndex` como
-recurso do agente).
+    tabela Delta (políticas)  ──►  índice delta-sync (Vector Search)  ──►  VectorSearchRetrieverTool
+
+O melhor é que os **embeddings são por conta do Databricks**: a gente só aponta a coluna de texto
+e o endpoint de embeddings, e o Vector Search se vira para calcular os vetores e mantê-los em dia
+com a tabela-fonte (HNSW + busca híbrida via Reciprocal Rank Fusion). Para o agente, essa busca
+chega como mais uma *tool* (`VectorSearchRetrieverTool`), do mesmo jeitinho que as UC Functions.
+
+As funções que criam tudo isso (`criar_tabela_politicas`, `criar_indice`) são chamadas no
+**setup** (exemplo 00). No dia a dia, o agente só toca no `retriever_tool()`.
 """
 
 from __future__ import annotations
 
-import os
-
-import numpy as np
-
+from .config import (
+    ENDPOINT_EMBEDDINGS,
+    ENDPOINT_VECTOR_SEARCH,
+    INDICE_POLITICAS,
+    TABELA_POLITICAS,
+)
 from .mlflow_databricks import exigir_databricks
 
-# Base de conhecimento da loja (chunks). Em produção viria de uma tabela/Delta indexada.
+# A base de conhecimento da loja, em pedacinhos. Na vida real, ela já viria de uma tabela Delta.
 POLITICAS = [
     "Política de troca: você pode trocar ou devolver um produto em até 30 dias após o "
     "recebimento, apresentando a nota fiscal.",
@@ -33,45 +42,77 @@ POLITICAS = [
 ]
 
 
-def _embed(textos: list[str]) -> np.ndarray:
-    """Embeddings normalizados via endpoint do Databricks (Foundation Model API)."""
+# ---------------------------------------------------------------------------------------
+# O setup (exemplo 00): montar a tabela-fonte e o índice. Pode rodar quantas vezes quiser.
+# ---------------------------------------------------------------------------------------
+
+def criar_tabela_politicas(spark) -> str:
+    """Grava (ou regrava) a tabela Delta com as políticas — é dela que o índice se alimenta.
+
+    O delta-sync só funciona com o **Change Data Feed** ligado na tabela, então já cuidamos disso
+    aqui. Precisa da sessão `spark` (que o runtime do Databricks entrega de bandeja) e devolve o
+    nome de três níveis da tabela.
+    """
+    linhas = [(i + 1, texto) for i, texto in enumerate(POLITICAS)]
+    df = spark.createDataFrame(linhas, ["id", "texto"])
+    (df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(TABELA_POLITICAS))
+    spark.sql(
+        f"ALTER TABLE {TABELA_POLITICAS} "
+        "SET TBLPROPERTIES (delta.enableChangeDataFeed = true)"
+    )
+    return TABELA_POLITICAS
+
+
+def criar_indice() -> str:
+    """Garante que o endpoint e o índice de Vector Search existem — criando-os só se faltarem."""
+    exigir_databricks(libs=("databricks.vector_search",))
+    from databricks.vector_search.client import VectorSearchClient
+
+    vsc = VectorSearchClient(disable_notice=True)
+
+    # 1) O endpoint (o compute que serve o índice). Se já estiver de pé, seguimos em frente.
+    nomes = {e["name"] for e in vsc.list_endpoints().get("endpoints", [])}
+    if ENDPOINT_VECTOR_SEARCH not in nomes:
+        vsc.create_endpoint_and_wait(name=ENDPOINT_VECTOR_SEARCH, endpoint_type="STANDARD")
+
+    # 2) O índice em si, com os embeddings por conta do Databricks. Se já existe, não mexemos.
+    try:
+        vsc.get_index(ENDPOINT_VECTOR_SEARCH, INDICE_POLITICAS).describe()
+    except Exception:
+        vsc.create_delta_sync_index_and_wait(
+            endpoint_name=ENDPOINT_VECTOR_SEARCH,
+            index_name=INDICE_POLITICAS,
+            source_table_name=TABELA_POLITICAS,
+            pipeline_type="TRIGGERED",            # ressincroniza quando a gente pedir
+            primary_key="id",
+            embedding_source_column="texto",       # o Databricks calcula e mantém os vetores
+            embedding_model_endpoint_name=ENDPOINT_EMBEDDINGS,
+        )
+    return INDICE_POLITICAS
+
+
+# ---------------------------------------------------------------------------------------
+# O que o agente realmente usa: a recuperação, embrulhada numa tool.
+# ---------------------------------------------------------------------------------------
+
+def retriever_tool():
+    """A tool que faz a busca no índice de Vector Search — o "R" do RAG, em forma de ferramenta."""
     exigir_databricks(libs=("databricks_langchain",))
-    from databricks_langchain import DatabricksEmbeddings
+    from databricks_langchain import VectorSearchRetrieverTool
 
-    endpoint = os.getenv("ENDPOINT_EMBEDDINGS", "databricks-gte-large-en")
-    cliente = DatabricksEmbeddings(endpoint=endpoint)
-    vetores = np.asarray(cliente.embed_documents(textos), dtype="float32")
-    normas = np.linalg.norm(vetores, axis=1, keepdims=True)
-    return vetores / np.clip(normas, 1e-8, None)
-
-
-class BaseVetorial:
-    """Índice da base de conhecimento com busca por similaridade (top-k)."""
-
-    def __init__(self, documentos: list[str] | None = None):
-        self.documentos = documentos or POLITICAS
-        self.matriz = _embed(self.documentos)
-
-    def recuperar(self, pergunta: str, k: int = 2) -> list[str]:
-        """Top-k trechos mais similares à pergunta (RECUPERAR do RAG)."""
-        consulta = _embed([pergunta])[0]
-        scores = self.matriz @ consulta
-        indices = np.argsort(-scores)[:k]
-        return [self.documentos[int(i)] for i in indices]
+    return VectorSearchRetrieverTool(
+        index_name=INDICE_POLITICAS,
+        num_results=3,
+        columns=["id", "texto"],
+        text_column="texto",
+        tool_name="buscar_politica",
+        tool_description=(
+            "Busca a política/FAQ da loja na base de conhecimento (troca, frete, garantia, "
+            "reembolso, atendimento). Use sempre que a pergunta for sobre regras da loja."
+        ),
+    )
 
 
-# Índice único reaproveitado pelos exemplos (construído sob demanda, na 1ª chamada).
-_BASE: BaseVetorial | None = None
-
-
-def recuperar(pergunta: str, k: int = 2) -> list[str]:
-    """Atalho: recupera os k trechos mais relevantes da base de conhecimento."""
-    global _BASE
-    if _BASE is None:
-        _BASE = BaseVetorial()
-    return _BASE.recuperar(pergunta, k)
-
-
-def backend_embeddings() -> str:
-    """Nome do endpoint de embeddings em uso (para o log/observabilidade)."""
-    return os.getenv("ENDPOINT_EMBEDDINGS", "databricks-gte-large-en")
+def backend_rag() -> str:
+    """Só devolve o nome do índice em uso — útil para deixar registrado no log."""
+    return INDICE_POLITICAS
