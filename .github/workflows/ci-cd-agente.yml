@@ -14,13 +14,15 @@
 name: CI/CD do Agente (LLMOps)
 
 on:
-  pull_request:
-    paths:
-      - "aula-07/**"
-  push:
-    branches: [main]
-    paths:
-      - "aula-07/**"
+  # ⚠️ DISPARO AUTOMÁTICO TEMPORARIAMENTE DESABILITADO (jun/2026) durante a adaptação
+  # dos códigos práticos da Aula 07. Para reativar, descomente os blocos abaixo.
+  # pull_request:
+  #   paths:
+  #     - "aula-07/**"
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "aula-07/**"
   workflow_dispatch: {}
 
 jobs:
