@@ -48,8 +48,8 @@ while _dir != os.path.dirname(_dir):
 import mlflow
 
 from agente.config import (
-    ENDPOINT_EMBEDDINGS, ENDPOINT_LLM, FUNC_CALCULAR_FRETE, FUNC_STATUS_PEDIDO,
-    INDICE_POLITICAS, MODELO_UC,
+    CATALOGO, ENDPOINT_EMBEDDINGS, ENDPOINT_LLM, FUNC_CALCULAR_FRETE, FUNC_STATUS_PEDIDO,
+    INDICE_POLITICAS, MODELO_UC, SCHEMA,
 )
 from agente.mlflow_databricks import configurar_mlflow, credenciais_ok
 
@@ -123,12 +123,24 @@ print("validação pré-deploy pulada (célula comentada).")
 # MAGIC
 # MAGIC `agents.deploy` provisiona o endpoint do agente (com a *review app* e a tabela de inferência
 # MAGIC para feedback/monitoramento). Leva alguns minutos até ficar `READY`.
+# MAGIC
+# MAGIC Dentro do container de serving NÃO existe o `aula-07/.env`, então passamos os endpoints e o
+# MAGIC catálogo como `environment_vars`. Sem isso, o `config.py` cairia nos defaults (ex.:
+# MAGIC `databricks-claude-sonnet-4-5`) e o agente chamaria um endpoint inexistente (erro 404).
 
 # COMMAND ----------
 
 from databricks import agents
 
-deployment = agents.deploy(MODELO_UC, info.registered_model_version, scale_to_zero=True)
+deployment = agents.deploy(
+    MODELO_UC, info.registered_model_version, scale_to_zero=True,
+    environment_vars={
+        "ENDPOINT_LLM_AGENTE": ENDPOINT_LLM,        # o "cérebro" (precisa existir no workspace)
+        "ENDPOINT_EMBEDDINGS": ENDPOINT_EMBEDDINGS,
+        "UC_CATALOG": CATALOGO,
+        "UC_SCHEMA": SCHEMA,
+    },
+)
 print("endpoint   :", deployment.endpoint_name)
 print("query URL  :", deployment.query_endpoint)
 print("review app :", getattr(deployment, "review_app_url", "—"))
