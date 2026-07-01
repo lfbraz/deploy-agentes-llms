@@ -105,10 +105,13 @@ print("registrado:", MODELO_UC, "v", info.registered_model_version)
 
 # COMMAND ----------
 
+# `env_manager="local"` valida no ambiente ATUAL (que já tem as dependências via %pip) — rápido e
+# sem recriar env. Para isolar de verdade num ambiente limpo, use "uv" ou "virtualenv"
+# (exige o `uv`/`virtualenv` instalado no cluster).
 mlflow.models.predict(
     model_uri=info.model_uri,
     input_data=input_example,
-    env_manager="uv",
+    env_manager="local",
 )
 
 # COMMAND ----------
