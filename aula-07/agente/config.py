@@ -34,8 +34,9 @@ def uc(objeto: str) -> str:
 
 
 # Cada recurso do agente, com seu nome de três níveis no Unity Catalog.
-FUNC_STATUS_PEDIDO = uc("consultar_status_pedido")   # UC Function (tool)
-FUNC_CALCULAR_FRETE = uc("calcular_frete")           # UC Function (tool)
+FUNC_STATUS_PEDIDO = uc("consultar_status_pedido")   # UC Function SQL (tool)
+FUNC_CALCULAR_FRETE = uc("calcular_frete")           # UC Function Python (tool)
+TABELA_PEDIDOS = uc("pedidos")                       # tabela Delta lida pela função de status
 TABELA_POLITICAS = uc("politicas")                   # tabela Delta-fonte do RAG
 INDICE_POLITICAS = uc("politicas_idx")               # índice de Vector Search (RAG)
 MODELO_UC = os.getenv("MODELO_UC", uc("agente_suporte"))          # Registered Model (deploy)

@@ -5,8 +5,11 @@
 # MAGIC Antes de desenvolver o agente, criamos os **recursos que ele consome** — todos governados pelo
 # MAGIC Unity Catalog, do jeito que o **Databricks Agent Framework** recomenda:
 # MAGIC
-# MAGIC - **UC Functions** (as *tools*): `consultar_status_pedido` e `calcular_frete`, registradas como
-# MAGIC   funções no Unity Catalog (com permissões, linhagem e descoberta) — Aulas 3-4;
+# MAGIC - **Tabela de pedidos**: uma tabela Delta com os pedidos da loja — os **dados reais** que a
+# MAGIC   função de status consulta;
+# MAGIC - **UC Functions** (as *tools*): `consultar_status_pedido` (função **SQL** que lê a tabela de
+# MAGIC   pedidos) e `calcular_frete` (função **Python**), registradas no Unity Catalog (com
+# MAGIC   permissões, linhagem e descoberta) — Aulas 3-4;
 # MAGIC - **Índice de Vector Search** (o RAG): uma tabela Delta com as políticas da loja, sincronizada
 # MAGIC   para um índice de **Databricks AI Search** com embeddings gerenciados — Aula 4.
 # MAGIC
@@ -47,7 +50,7 @@ while _dir != os.path.dirname(_dir):
 
 from agente.config import (
     CATALOGO, ENDPOINT_EMBEDDINGS, ENDPOINT_VECTOR_SEARCH, INDICE_POLITICAS, SCHEMA,
-    TABELA_POLITICAS,
+    TABELA_PEDIDOS, TABELA_POLITICAS,
 )
 from agente.mlflow_databricks import credenciais_ok
 
@@ -55,6 +58,7 @@ if not credenciais_ok():
     raise SystemExit("Configure DATABRICKS_HOST/TOKEN no aula-07/.env (veja o .env.example).")
 
 print(f"catálogo.schema : {CATALOGO}.{SCHEMA}")
+print(f"tabela pedidos  : {TABELA_PEDIDOS}")
 print(f"tabela políticas: {TABELA_POLITICAS}")
 print(f"índice (RAG)    : {INDICE_POLITICAS}  (endpoint {ENDPOINT_VECTOR_SEARCH})")
 print(f"embeddings      : {ENDPOINT_EMBEDDINGS}")
@@ -82,10 +86,32 @@ except Exception as e:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 1) Registrar as UC Functions (as ferramentas do agente)
+# MAGIC ## 1) Criar a tabela de pedidos (os dados reais da função de status)
 # MAGIC
-# MAGIC `DatabricksFunctionClient.create_python_function` serializa cada função Python (com type hints
-# MAGIC e docstring) para uma **função no Unity Catalog**. A partir daí ela é uma tool reutilizável.
+# MAGIC A UC Function `consultar_status_pedido` é uma **função SQL** que consulta esta tabela — por
+# MAGIC isso ela vem primeiro (o `CREATE FUNCTION` valida a referência à tabela). É também nela que a
+# MAGIC demo do gate (`98_demo_gate_cicd.py`) mexe para fazer o CI/CD falhar ou passar.
+
+# COMMAND ----------
+
+from agente.ferramentas import PEDIDOS, criar_tabela_pedidos
+
+try:
+    tabela_pedidos = criar_tabela_pedidos(spark)  # noqa: F821 (spark é global no Databricks)
+    print(f">> tabela {tabela_pedidos} criada com {len(PEDIDOS)} pedidos.")
+except NameError:
+    raise SystemExit("Este passo cria recursos reais — rode dentro de um workspace Databricks "
+                     "(a sessão `spark` precisa existir) ou via databricks-connect.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2) Registrar as UC Functions (as ferramentas do agente)
+# MAGIC
+# MAGIC A consulta de status vira uma **função SQL** (`CREATE FUNCTION ... READS SQL DATA`) — funções
+# MAGIC Python de UC rodam num sandbox sem acesso a tabelas. O cálculo de frete segue como **função
+# MAGIC Python**: o `create_python_function` serializa a função (type hints + docstring) para o
+# MAGIC Unity Catalog. Registradas, ambas são tools reutilizáveis.
 
 # COMMAND ----------
 
@@ -99,7 +125,7 @@ for f in funcs:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2) Criar a tabela de políticas (a fonte do RAG)
+# MAGIC ## 3) Criar a tabela de políticas (a fonte do RAG)
 # MAGIC
 # MAGIC O índice delta-sync se mantém em dia com uma tabela Delta. Gravamos as políticas e habilitamos
 # MAGIC o **Change Data Feed** (pré-requisito do delta-sync). Precisa da sessão `spark` (Databricks).
@@ -118,7 +144,7 @@ except NameError:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3) Criar o endpoint e o índice de Vector Search
+# MAGIC ## 4) Criar o endpoint e o índice de Vector Search
 # MAGIC
 # MAGIC O `create_delta_sync_index` cria um índice com **embeddings gerenciados**: declaramos a coluna
 # MAGIC de texto e o endpoint de embeddings, e o Databricks calcula/mantém os vetores. A criação leva
