@@ -59,7 +59,7 @@ print("prompt registrado em:", PROMPT_UC)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Três versões do prompt (a "tripla" evoluindo)
+# MAGIC ## Três versões do prompt
 # MAGIC
 # MAGIC Cada `register_prompt` no mesmo nome incrementa a versão. O template mantém a variável
 # MAGIC `{{loja}}`. Guardamos metadados úteis (autor, endpoint testado) nas *tags* da versão.
