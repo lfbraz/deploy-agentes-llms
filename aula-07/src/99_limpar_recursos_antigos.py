@@ -2,9 +2,7 @@
 # MAGIC %md
 # MAGIC # (Opcional) Limpeza — remover os recursos antigos de outro catálogo
 # MAGIC
-# MAGIC A Aula 07 passou a viver em `aula_07.default`. Se você rodou os exemplos antes, sobraram
-# MAGIC recursos num catálogo antigo (por padrão `main.default`). Este notebook **apaga** esses
-# MAGIC recursos para não deixar lixo pelo workspace:
+# MAGIC Este notebook **apaga** estes recursos para limpeza do workspace:
 # MAGIC
 # MAGIC - as **UC Functions** (`consultar_status_pedido`, `calcular_frete`);
 # MAGIC - a **tabela** de políticas e o **índice de Vector Search**;
