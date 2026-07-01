@@ -11,6 +11,7 @@ SETUP → DESENVOLVER → VERSIONAR → FEEDBACK → GATE → SERVIR → ORQUEST
 O que demonstramos, ponta a ponta:
 
 1. **Agente com tools** — ferramentas como **UC Functions** (Unity Catalog) via `UCFunctionToolkit`;
+   o status do pedido é uma **função SQL** que consulta dados reais na tabela `pedidos`;
 2. **Observabilidade** — `mlflow.langchain.autolog()` (cada chamada vira *span* numa trace);
 3. **RAG com base vetorial** — índice de **Databricks AI Search (Vector Search)** + `VectorSearchRetrieverTool`;
 4. **Feedback humano** — `mlflow.log_feedback` anexa o 👍/👎 do usuário à trace;
@@ -20,8 +21,8 @@ O que demonstramos, ponta a ponta:
 8. **CI/CD** — **GitHub Actions** com o gate de aprovação barrando o merge.
 
 > Os **guardrails** de produção e os **painéis de monitoramento** são configurados na própria UI
-> do workspace (AI Gateway / Guardrails, *Inference Tables*, dashboards). No código, um teste de
-> *jailbreak* recusado entra como caso do **gate de aprovação**.
+> do workspace (AI Gateway / Guardrails, *Inference Tables*, dashboards). No código, o
+> comportamento é validado pelo **gate de aprovação** (testes unitários sobre situações conhecidas).
 
 > Sem `DATABRICKS_HOST`/`DATABRICKS_TOKEN`, cada exemplo exibe os pré-requisitos e encerra. A Aula 07
 > roda **sempre** contra o Databricks (não há modo offline).
@@ -36,7 +37,7 @@ recursos governados:
 | Arquivo | Pilar (aula) | O que faz |
 |---------|--------------|-----------|
 | [`config.py`](agente/config.py) | versionamento/infra | a "tripla" (prompt+endpoint+geração) + nomes UC + endpoints |
-| [`ferramentas.py`](agente/ferramentas.py) | tool use (Aulas 3-4) | funções → **UC Functions** + `UCFunctionToolkit` |
+| [`ferramentas.py`](agente/ferramentas.py) | tool use (Aulas 3-4) | **UC Functions** (SQL sobre a tabela `pedidos` + Python) + `UCFunctionToolkit` |
 | [`base_vetorial.py`](agente/base_vetorial.py) | RAG (Aula 4) | índice de **Vector Search** + `VectorSearchRetrieverTool` |
 | [`agente_suporte.py`](agente/agente_suporte.py) | observabilidade (Aula 6) | `ResponsesAgent` (tools + RAG) + `autolog` + feedback |
 | [`mlflow_databricks.py`](agente/mlflow_databricks.py) | infra | pré-requisitos, tracking/registry no Unity Catalog |
@@ -87,8 +88,9 @@ Execute **na ordem** (a partir da raiz do repositório). Cada um é uma etapa do
 python aula-07/src/00_setup_recursos.py
 ```
 
-Idempotente: registra as **UC Functions** (tools) e cria a tabela de políticas + o **índice de
-Vector Search** (RAG). Roda **dentro de um workspace Databricks** (precisa da sessão `spark`).
+Idempotente: cria a **tabela de pedidos** (os dados reais da função de status), registra as
+**UC Functions** (tools) e cria a tabela de políticas + o **índice de Vector Search** (RAG).
+Roda **dentro de um workspace Databricks** (precisa da sessão `spark`).
 
 ### Passo 1 — Desenvolver o agente (tools + RAG + observabilidade)
 
@@ -123,8 +125,8 @@ ligada à **trace** — sinal que alimenta a avaliação e o gate.
 pytest aula-07/src/04_gate_aprovacao.py -v
 ```
 
-O gate verifica **situações conhecidas** (garantia → "12 meses", troca → "30 dias", pedido →
-UC Function) e se um **jailbreak é recusado**. *Exit code* != 0 **bloqueia o merge** no CI.
+O gate verifica **situações conhecidas** (garantia → "12 meses", troca → "30 dias", pedido 1002 →
+status real vindo da tabela `pedidos`). *Exit code* != 0 **bloqueia o merge** no CI.
 
 ### Passo 5 — Servir o agente (deploy real)
 
@@ -144,6 +146,16 @@ python aula-07/src/06_pipeline_llmops.py
 
 **Observe**: registrar prompt → **gate (pytest)** → promover alias → servir → feedback, cada
 transição numa **trilha de auditoria** (a governança que separa um protótipo de um sistema enterprise).
+
+### (Demo) Gate verde/vermelho — o CI/CD reagindo aos dados
+
+```bash
+python aula-07/src/98_demo_gate_cicd.py
+```
+
+Remove o pedido **1002** da tabela `pedidos` para o gate **falhar** (*exit* != 0 → merge
+bloqueado) e o recoloca para o gate voltar a **passar** — a mecânica exata da esteira de CI/CD,
+demonstrada com dados reais do Unity Catalog.
 
 ### (Opcional) Limpeza — remover recursos de um catálogo antigo
 
