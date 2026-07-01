@@ -20,13 +20,30 @@ from .config import uc  # nomes de três níveis do Unity Catalog
 
 
 def em_databricks() -> bool:
-    """Estamos executando dentro de um runtime do Databricks?"""
+    """Estamos executando dentro de um runtime do Databricks (notebook/job)?"""
     return bool(os.getenv("DATABRICKS_RUNTIME_VERSION"))
 
 
+def em_model_serving() -> bool:
+    """Estamos dentro de um endpoint de Model Serving?
+
+    Lá NÃO existem DATABRICKS_HOST/TOKEN: a autenticação é automática, concedida a partir dos
+    `resources` declarados no `log_model`. Por isso não podemos exigir credenciais neste contexto.
+    """
+    return bool(
+        os.getenv("IS_IN_DB_MODEL_SERVING_ENV")
+        or os.getenv("DB_MODEL_SERVING_HOST_URL")
+        or os.getenv("MODEL_SERVING_ENDPOINT_NAME")
+    )
+
+
 def credenciais_ok() -> bool:
-    """Há como autenticar no Databricks (pelo runtime ou por HOST/TOKEN no ambiente)?"""
-    return em_databricks() or bool(os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN"))
+    """Há como autenticar no Databricks (runtime, Model Serving ou HOST/TOKEN no ambiente)?"""
+    return (
+        em_databricks()
+        or em_model_serving()
+        or bool(os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN"))
+    )
 
 
 def exigir_databricks(libs: tuple[str, ...] = ()) -> None:
@@ -70,6 +87,12 @@ def configurar_mlflow() -> None:
         return
     exigir_databricks(libs=("mlflow",))
     import mlflow
+
+    if em_model_serving():
+        # No serving, o endpoint já cuida de auth e tracing — não reconfiguramos tracking/registry
+        # nem experimento (não há workspace-path aqui, e mexer nisso só atrapalharia).
+        _CONFIGURADO = True
+        return
 
     if not em_databricks():
         mlflow.set_tracking_uri("databricks")
