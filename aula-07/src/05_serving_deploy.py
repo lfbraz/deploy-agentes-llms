@@ -111,7 +111,7 @@ print("registrado:", MODELO_UC, "v", info.registered_model_version)
 mlflow.models.predict(
     model_uri=info.model_uri,
     input_data=input_example,
-    env_manager="virtualenv",
+    env_manager="local",
 )
 
 # COMMAND ----------
@@ -126,7 +126,7 @@ mlflow.models.predict(
 
 from databricks import agents
 
-deployment = agents.deploy(MODELO_UC, info.registered_model_version, scale_to_zero_enabled=True)
+deployment = agents.deploy(MODELO_UC, info.registered_model_version, scale_to_zero=True)
 print("endpoint   :", deployment.endpoint_name)
 print("query URL  :", deployment.query_endpoint)
 print("review app :", getattr(deployment, "review_app_url", "—"))
