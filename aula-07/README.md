@@ -145,6 +145,17 @@ python aula-07/src/06_pipeline_llmops.py
 **Observe**: registrar prompt → **gate (pytest)** → promover alias → servir → feedback, cada
 transição numa **trilha de auditoria** (a governança que separa um protótipo de um sistema enterprise).
 
+### (Opcional) Limpeza — remover recursos de um catálogo antigo
+
+```bash
+python aula-07/src/99_limpar_recursos_antigos.py
+```
+
+Se você rodou a aula antes com outro catálogo (o padrão anterior era `main.default`), este script
+**apaga** os recursos lá (functions, tabela, índice, modelo e prompt) para não deixar lixo. É
+**destrutivo** e tem trava para não apagar o catálogo atual; ajuste `UC_CATALOG_ANTIGO`/
+`UC_SCHEMA_ANTIGO` se o antigo não for `main.default`.
+
 ---
 
 ## 4. O notebook (a jornada interativa)
