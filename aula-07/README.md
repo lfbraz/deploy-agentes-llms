@@ -157,16 +157,16 @@ Remove o pedido **1002** da tabela `pedidos` para o gate **falhar** (*exit* != 0
 bloqueado) e o recoloca para o gate voltar a **passar** — a mecânica exata da esteira de CI/CD,
 demonstrada com dados reais do Unity Catalog.
 
-### (Opcional) Limpeza — remover recursos de um catálogo antigo
+### (Opcional) Limpeza — zerar a estrutura da aula
 
 ```bash
-python aula-07/src/99_limpar_recursos_antigos.py
+python aula-07/src/99_limpar_recursos.py
 ```
 
-Se você rodou a aula antes com outro catálogo (o padrão anterior era `main.default`), este script
-**apaga** os recursos lá (functions, tabela, índice, modelo e prompt) para não deixar lixo. É
-**destrutivo** e tem trava para não apagar o catálogo atual; ajuste `UC_CATALOG_ANTIGO`/
-`UC_SCHEMA_ANTIGO` se o antigo não for `main.default`.
+**Apaga** a estrutura atual da aula no catálogo/schema do `.env` (padrão `aula_07.default`):
+endpoint de serving, modelo registrado, prompt, índice + endpoint de Vector Search, tabelas
+(`pedidos`, `politicas`) e UC Functions. É **destrutivo** — use para recomeçar do zero (o
+`00_setup` recria tudo). O experimento/traces do MLflow são preservados.
 
 ---
 
