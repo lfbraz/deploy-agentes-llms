@@ -11,7 +11,7 @@
 # MAGIC   para um índice de **Databricks AI Search** com embeddings gerenciados — Aula 4.
 # MAGIC
 # MAGIC Este passo é **idempotente**: rode quantas vezes quiser. Ele precisa de um catálogo/schema com
-# MAGIC permissão de escrita (configure `UC_CATALOG`/`UC_SCHEMA` no `.env`; padrão `main.default`).
+# MAGIC permissão de escrita (configure `UC_CATALOG`/`UC_SCHEMA` no `.env`; padrão `aula_07.default`).
 
 # COMMAND ----------
 

@@ -6,10 +6,10 @@ Num agente LLM, o que muda toda semana não são os pesos de um modelo, e sim a 
 **system_prompt + modelo (endpoint) + parâmetros de geração**. É ela que o Prompt Registry
 versiona (exemplo 02) e para onde os aliases (champion/challenger) apontam. E o agente não vive
 sozinho: ele puxa **recursos governados no Unity Catalog** — as UC Functions (tools), o índice de
-Vector Search (RAG) e os endpoints de Model Serving. Para não espalhar nomes mágicos pela aula
-inteira, juntamos todos aqui, num só lugar, lidos do ambiente (veja `aula-07/.env.example`).
+Vector Search (RAG) e os endpoints de Model Serving. Para não espalhar strings hardcoded pela
+aula inteira, centralizamos tudo aqui, lido do ambiente (veja `aula-07/.env.example`).
 
-Um detalhe que vale o alerta: `endpoint` aponta para um Model Serving (Foundation Model API) e,
+Um detalhe importante: `endpoint` aponta para um Model Serving (Foundation Model API) e,
 como o agente usa *tool use*, ele PRECISA fazer function calling. Por isso o padrão é um Claude
 servido pelo Databricks (`databricks-claude-sonnet-4-5`) — e nunca o `databricks-gpt-oss-20b`,
 que não chama ferramentas.
@@ -22,8 +22,7 @@ import os
 from dataclasses import dataclass
 
 # --------------------------------------------------------------------------------------
-# É aqui que tudo vai morar no Unity Catalog: o catálogo e o schema das funções, da tabela
-# de políticas e do índice.
+# Catálogo e schema do Unity Catalog onde ficam as funções, a tabela de políticas e o índice.
 # --------------------------------------------------------------------------------------
 CATALOGO = os.getenv("UC_CATALOG", "aula_07")
 SCHEMA = os.getenv("UC_SCHEMA", "default")
@@ -34,7 +33,7 @@ def uc(objeto: str) -> str:
     return f"{CATALOGO}.{SCHEMA}.{objeto}"
 
 
-# Cada recurso do agente, batizado com seu nome de três níveis no Unity Catalog.
+# Cada recurso do agente, com seu nome de três níveis no Unity Catalog.
 FUNC_STATUS_PEDIDO = uc("consultar_status_pedido")   # UC Function (tool)
 FUNC_CALCULAR_FRETE = uc("calcular_frete")           # UC Function (tool)
 TABELA_POLITICAS = uc("politicas")                   # tabela Delta-fonte do RAG
@@ -59,8 +58,8 @@ TRACE_TABLE_PREFIX = os.getenv("MLFLOW_TRACE_PREFIX", "experimento_aula_07")
 SQL_WAREHOUSE_ID = os.getenv("MLFLOW_TRACING_SQL_WAREHOUSE_ID")   # necessário p/ traces no UC
 
 
-# O system prompt do agente — o coração da "tripla" que vai para o Prompt Registry.
-# O `{{loja}}` segue a sintaxe de variáveis do registry e é preenchido na hora de formatar.
+# O system prompt do agente — a parte central da "tripla" que vai para o Prompt Registry.
+# O `{{loja}}` segue a sintaxe de variáveis do registry e é preenchido na formatação.
 SYSTEM_PROMPT_PADRAO = (
     "Você é o assistente de atendimento da loja {{loja}}. Seja cordial e responda em "
     "português, de forma objetiva (1 a 3 frases). Use as ferramentas disponíveis quando "
@@ -76,9 +75,9 @@ LOJA = os.getenv("NOME_LOJA", "Acme")
 class ConfigAgente:
     """A "tripla" do agente, congelada num objeto só: prompt + endpoint + parâmetros de geração.
 
-    É este objetinho que o Prompt Registry (exemplo 02) versiona e para onde os aliases
-    (champion/challenger) apontam. Quando ele chega aqui, o `system_prompt` já vem prontinho,
-    sem `{{variáveis}}` por preencher.
+    É este objeto que o Prompt Registry (exemplo 02) versiona e para onde os aliases
+    (champion/challenger) apontam. Aqui o `system_prompt` já chega formatado, sem
+    `{{variáveis}}` pendentes.
     """
 
     versao: int = 1
@@ -90,7 +89,7 @@ class ConfigAgente:
 
     @property
     def hash(self) -> str:
-        """Uma "impressão digital" da tripla — mesma config, mesmo hash, sempre."""
+        """Hash determinístico da tripla — a mesma config produz sempre o mesmo hash."""
         corpo = f"{self.system_prompt}|{self.endpoint}|{self.temperatura}|{self.max_tokens}"
         return hashlib.sha256(corpo.encode()).hexdigest()[:12]
 

@@ -108,7 +108,7 @@ mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v3.version)
 print("após promover, champion -> v",
       mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion").version)
 
-# Deu ruim em produção -> rollback na hora, voltando para a versão anterior.
+# Problema em produção -> rollback imediato: o alias volta para a versão anterior.
 mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v2.version)
 print("após rollback, champion -> v",
       mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion").version)

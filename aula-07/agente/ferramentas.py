@@ -8,13 +8,13 @@ Framework, o jeito governado de oferecer uma ferramenta é registrá-la como **U
 Unity Catalog — vira um artefato com permissão, linhagem e busca, que qualquer agente pode
 reaproveitar. Aqui temos duas:
 
-  • `consultar_status_pedido(numero)` — pergunta ao "sistema de pedidos" (que aqui é simulado);
-  • `calcular_frete(cep, peso)`        — faz a conta do frete por região e peso.
+  • `consultar_status_pedido(numero)` — consulta o "sistema de pedidos" (que aqui é simulado);
+  • `calcular_frete(cep, peso)`        — calcula o frete por região e peso.
 
 Repare que as funções são **autossuficientes** (carregam type hints, docstring e os imports no
 próprio corpo): é assim que o `DatabricksFunctionClient.create_python_function` consegue
-empacotá-las para o Unity Catalog. A busca na base de conhecimento (o RAG) fica de fora dessa
-turma — ela não é uma UC Function, e sim a `VectorSearchRetrieverTool` (veja `base_vetorial.py`).
+empacotá-las para o Unity Catalog. A busca na base de conhecimento (o RAG) não entra aqui —
+ela não é uma UC Function, e sim a `VectorSearchRetrieverTool` (veja `base_vetorial.py`).
 No fim, o agente recebe as duas coisas juntas: as UC Functions mais o retriever (veja
 `agente_suporte.py`).
 """
@@ -26,7 +26,7 @@ from .mlflow_databricks import exigir_databricks
 
 
 # ---------------------------------------------------------------------------------------
-# As funções de negócio — cada uma se basta sozinha para virar uma UC Function.
+# As funções de negócio — autossuficientes, prontas para virar UC Functions.
 # ---------------------------------------------------------------------------------------
 
 def consultar_status_pedido(numero: str) -> str:

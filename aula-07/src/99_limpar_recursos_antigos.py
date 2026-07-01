@@ -10,8 +10,8 @@
 # MAGIC - a **tabela** de políticas e o **índice de Vector Search**;
 # MAGIC - o **modelo registrado** e o **prompt** do Prompt Registry.
 # MAGIC
-# MAGIC > ⚠️ **É destrutivo.** Ele NÃO faz parte do provisionamento (`00_setup`) — rode de propósito,
-# MAGIC > uma vez. Por segurança, ele **se recusa a apagar o catálogo novo** (o que está no `.env`).
+# MAGIC > ⚠️ **É destrutivo.** Ele NÃO faz parte do provisionamento (`00_setup`) — execute-o
+# MAGIC > manualmente, uma única vez. Por segurança, ele **se recusa a apagar o catálogo novo** (o que está no `.env`).
 # MAGIC > Ajuste o catálogo/schema antigos em `UC_CATALOG_ANTIGO`/`UC_SCHEMA_ANTIGO` se preciso.
 
 # COMMAND ----------
