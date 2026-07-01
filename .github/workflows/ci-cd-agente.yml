@@ -15,15 +15,13 @@
 name: CI/CD do Agente (LLMOps)
 
 on:
-  # ⚠️ DISPARO AUTOMÁTICO TEMPORARIAMENTE DESABILITADO (jun/2026) durante a adaptação
-  # dos códigos práticos da Aula 07. Para reativar, descomente os blocos abaixo.
-  # pull_request:
-  #   paths:
-  #     - "aula-07/**"
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - "aula-07/**"
+  pull_request:
+    paths:
+      - "aula-07/**"
+  push:
+    branches: [main]
+    paths:
+      - "aula-07/**"
   workflow_dispatch: {}
 
 jobs:
@@ -64,6 +62,10 @@ jobs:
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          # No runner não existe o aula-07/.env — sem isto o config.py cairia no default
+          # (databricks-claude-sonnet-4-5), inexistente no Free Edition. Sobrescreva pela
+          # variável de repositório ENDPOINT_LLM_AGENTE (Settings → Variables) se preciso.
+          ENDPOINT_LLM_AGENTE: ${{ vars.ENDPOINT_LLM_AGENTE || 'databricks-meta-llama-3-3-70b-instruct' }}
         run: |
           if [ -z "${DATABRICKS_HOST}" ]; then
             echo "::warning::Sem segredos do Databricks — os testes do gate serão PULADOS."
@@ -87,6 +89,7 @@ jobs:
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          ENDPOINT_LLM_AGENTE: ${{ vars.ENDPOINT_LLM_AGENTE || 'databricks-meta-llama-3-3-70b-instruct' }}
         run: |
           if [ -z "${DATABRICKS_HOST}" ]; then
             echo "::warning::Sem segredos do Databricks — deploy PULADO."

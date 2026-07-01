@@ -197,8 +197,9 @@ verificacoes  →  gate-aprovacao  →  registrar-deploy (só no main)
 - **`registrar-deploy`** — só no `main` e só se o gate passou; registra a versão, move o alias
   `champion` e faz o deploy (`agents.deploy`).
 
-> Os gatilhos automáticos (`pull_request`/`push`) estão **temporariamente comentados** no workflow
-> durante a adaptação dos exemplos — restam apenas execuções manuais (`workflow_dispatch`).
+> O workflow dispara em `pull_request`/`push` que toquem `aula-07/**` (e também manualmente, via
+> `workflow_dispatch`). Como o runner não tem o `.env`, o endpoint do LLM vem da variável de
+> repositório `ENDPOINT_LLM_AGENTE` (padrão: `databricks-meta-llama-3-3-70b-instruct`).
 
 ---
 
