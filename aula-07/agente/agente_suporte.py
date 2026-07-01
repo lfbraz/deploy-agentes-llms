@@ -1,21 +1,18 @@
 """
-agente_suporte.py — o agente embrulhado num MLflow `ResponsesAgent`
+agente_suporte.py — o agente empacotado num MLflow `ResponsesAgent`
 ===================================================================
 
-Costura tudo num único agente, no caminho que o **Databricks Agent Framework** recomenda: autorar
-na interface **`ResponsesAgent`** do MLflow já traz *tracing*, avaliação, deploy e monitoramento
-de brinde. É aqui que os pilares das aulas anteriores se encontram:
+Desenvolvido como um único agente, no caminho que o **Databricks Agent Framework** recomenda: autorar
+na interface **`ResponsesAgent`** do MLflow já traz *tracing*, avaliação, deploy e monitoramento integrados. É aqui que os pilares das aulas anteriores se encontram:
 
     PERGUNTA ──►  agente (LLM + tool use: UC Functions + Vector Search RAG)  ──►  RESPOSTA
                                          │
                             observabilidade: mlflow.langchain.autolog()
 
-O "cérebro" é um endpoint Foundation Model (Claude) acessado pelo `ChatDatabricks`. As ferramentas
+O "cérebro" é um endpoint Foundation Model acessado pelo `ChatDatabricks`. As ferramentas
 são as **UC Functions** (`ferramentas.py`) e o **retriever de Vector Search** (`base_vetorial.py`).
-O *tool use* não tem mágica: é um **loop explícito** (`bind_tools` → o modelo pede uma ferramenta →
-a gente executa → devolve o resultado → repete até ele concluir), igual à Aula 4. E a observabilidade
-sai de graça com o `mlflow.langchain.autolog()`: cada ida ao modelo ou a uma ferramenta vira um
-*span* dentro da trace.
+O *tool use* é um **loop explícito** (`bind_tools` → o modelo pede uma ferramenta → executamos →
+devolvemos o resultado → repete até ele concluir). E a observabilidade não exige esforço extra: com o `mlflow.langchain.autolog()`, cada chamada ao modelo ou a uma ferramenta vira um *span* dentro da trace.
 """
 
 from __future__ import annotations
@@ -69,7 +66,7 @@ def _construir_llm(config: ConfigAgente):
     from .base_vetorial import retriever_tool
     from .ferramentas import tools_uc
 
-    mlflow.langchain.autolog()      # com isso, modelo e tools já saem rastreados de graça
+    mlflow.langchain.autolog()      # a partir daqui, modelo e tools são rastreados automaticamente
     llm = ChatDatabricks(endpoint=config.endpoint, temperature=config.temperatura,
                          max_tokens=config.max_tokens)
     tools = list(tools_uc()) + [retriever_tool()]     # as UC Functions mais o retriever do RAG
@@ -83,7 +80,7 @@ def _llm(config: ConfigAgente):
 
 
 def _loop_decisao(config: ConfigAgente, pergunta: str, max_voltas: int = 5) -> tuple[str, list[str]]:
-    """O vaivém do tool use: o modelo pede uma ferramenta, a gente executa e devolve, até ele fechar."""
+    """Loop do tool use: o modelo pede uma ferramenta, executamos e devolvemos, até ele concluir."""
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     llm_tools, registro = _llm(config)
@@ -115,7 +112,7 @@ from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 
 
 class AgenteSuporteResponses(ResponsesAgent):
-    """Veste o agente com a interface ResponsesAgent — o padrão do Databricks Agent Framework."""
+    """Expõe o agente pela interface ResponsesAgent — o padrão do Databricks Agent Framework."""
 
     def __init__(self, config: ConfigAgente = CONFIG_PADRAO):
         self.config = config
@@ -128,7 +125,7 @@ class AgenteSuporteResponses(ResponsesAgent):
 
 
 def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
-    """Pesca a última fala do usuário lá no request (que vem no formato Responses)."""
+    """Extrai a última mensagem do usuário do request (formato Responses)."""
     for item in reversed(list(getattr(request, "input", []) or [])):
         d = item if isinstance(item, dict) else item.model_dump()
         if d.get("role") == "user":
@@ -141,7 +138,7 @@ def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
 
 
 def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteSuporteResponses:
-    """Entrega o agente prontinho para registrar e servir (models-from-code)."""
+    """Constrói o agente pronto para registrar e servir (models-from-code)."""
     return AgenteSuporteResponses(config)
 
 
@@ -166,8 +163,8 @@ def registrar_feedback(resp: Resposta, util: bool, comentario: str = "",
                        usuario: str = "cliente@acme.com") -> None:
     """Anexa o 👍/👎 do usuário à trace, como uma *assessment* HUMANA.
 
-    É o **human feedback** do MLflow 3: o veredito de quem usou fica grudado na trace e vira
-    combustível para a avaliação e para montar *golden sets* (veja a Aula 6).
+    É o **human feedback** do MLflow 3: o veredito do usuário fica anexado à trace e alimenta
+    a avaliação e a curadoria de *golden sets* (veja a Aula 6).
     """
     from mlflow.entities import AssessmentSource
 

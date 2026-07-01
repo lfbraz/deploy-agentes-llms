@@ -2,14 +2,14 @@
 mlflow_databricks.py — a conversa do agente com o Databricks/MLflow
 ===================================================================
 
-Este é o módulo que arruma a casa antes de qualquer coisa rodar. Ele faz duas tarefas chatas
-porém essenciais: confere se temos credencial e as bibliotecas na mão (e, quando falta algo,
-avisa em bom português em vez de deixar estourar um `ImportError` ou um `401` enigmático) e
+Módulo de preparação do ambiente, executado antes de qualquer outra coisa. Ele faz duas tarefas
+essenciais: confere se há credenciais e bibliotecas disponíveis (e, quando falta algo, mostra uma
+mensagem de erro clara em vez de deixar estourar um `ImportError` ou um `401` genérico) e
 aponta o MLflow para os lugares certos — o tracking no workspace e o registry no Unity Catalog.
 
-Dentro de um workspace Databricks a autenticação já vem de graça pelo runtime; rodando na sua
+Dentro de um workspace Databricks a autenticação vem do próprio runtime; rodando na sua
 máquina, basta o `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (veja o `aula-07/.env.example`). Os nomes
-de três níveis do Unity Catalog moram no `config.py`.
+de três níveis do Unity Catalog ficam no `config.py`.
 """
 
 from __future__ import annotations

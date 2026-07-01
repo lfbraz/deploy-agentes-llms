@@ -2,12 +2,12 @@
 serving_model.py — entrypoint "models-from-code" do MLflow para o agente
 ========================================================================
 
-Este é o arquivinho que o MLflow roda na hora de registrar o agente pela abordagem
-*models-from-code*. A única regra do jogo: ao executá-lo, o MLflow espera encontrar um
+Este é o arquivo que o MLflow executa ao registrar o agente pela abordagem
+*models-from-code*. O único requisito: ao executá-lo, o MLflow espera encontrar um
 `set_model(...)` apontando para a instância do agente.
 
-No registro, a gente lista os **recursos governados** que o agente usa (o exemplo 05 traz o
-`log_model` por inteiro) — é o que permite ao serving herdar as credenciais sozinho, via
+No registro, listamos os **recursos governados** que o agente usa (o exemplo 05 traz o
+`log_model` completo) — é o que permite ao serving herdar as credenciais automaticamente, via
 *automatic authentication*:
 
     import mlflow
@@ -41,6 +41,6 @@ from mlflow.models import set_model
 from agente.agente_suporte import construir_agente_databricks
 from agente.config import CONFIG_PADRAO
 
-# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e diz ao MLflow:
-# "é este aqui o modelo do artefato".
+# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e o define
+# como o modelo do artefato.
 set_model(construir_agente_databricks(CONFIG_PADRAO))

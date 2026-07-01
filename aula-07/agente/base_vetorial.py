@@ -2,20 +2,20 @@
 base_vetorial.py — RAG com **Databricks AI Search (Mosaic AI Vector Search)**
 =============================================================================
 
-Voltamos à Aula 4 (bancos vetoriais e RAG). O agente não decora a política da loja: ele vai
-buscá-la numa base de conhecimento e responde com base no que encontrou. A diferença para a Aula 4
-é o lar dessa base — agora ela é um **índice de Vector Search**, governado pelo Unity Catalog, e
-não mais um índice solto na memória:
+Voltamos à Aula 4 (bancos vetoriais e RAG). O agente não decora a política da loja: ele a
+busca numa base de conhecimento e responde com base no que encontrou. A diferença para a Aula 4
+é onde essa base vive — agora ela é um **índice de Vector Search**, governado pelo Unity Catalog,
+e não mais um índice solto na memória:
 
     tabela Delta (políticas)  ──►  índice delta-sync (Vector Search)  ──►  VectorSearchRetrieverTool
 
-O melhor é que os **embeddings são por conta do Databricks**: a gente só aponta a coluna de texto
-e o endpoint de embeddings, e o Vector Search se vira para calcular os vetores e mantê-los em dia
-com a tabela-fonte (HNSW + busca híbrida via Reciprocal Rank Fusion). Para o agente, essa busca
-chega como mais uma *tool* (`VectorSearchRetrieverTool`), do mesmo jeitinho que as UC Functions.
+Os **embeddings ficam por conta do Databricks**: apontamos a coluna de texto e o endpoint de
+embeddings, e o Vector Search calcula os vetores e os mantém sincronizados com a tabela-fonte
+(HNSW + busca híbrida via Reciprocal Rank Fusion). Para o agente, essa busca chega como mais
+uma *tool* (`VectorSearchRetrieverTool`), da mesma forma que as UC Functions.
 
 As funções que criam tudo isso (`criar_tabela_politicas`, `criar_indice`) são chamadas no
-**setup** (exemplo 00). No dia a dia, o agente só toca no `retriever_tool()`.
+**setup** (exemplo 00). Em tempo de execução, o agente usa apenas o `retriever_tool()`.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from .config import (
 )
 from .mlflow_databricks import exigir_databricks
 
-# A base de conhecimento da loja, em pedacinhos. Na vida real, ela já viria de uma tabela Delta.
+# A base de conhecimento da loja, em chunks. Em produção, ela viria de uma tabela Delta existente.
 POLITICAS = [
     "Política de troca: você pode trocar ou devolver um produto em até 30 dias após o "
     "recebimento, apresentando a nota fiscal.",
@@ -49,8 +49,8 @@ POLITICAS = [
 def criar_tabela_politicas(spark) -> str:
     """Grava (ou regrava) a tabela Delta com as políticas — é dela que o índice se alimenta.
 
-    O delta-sync só funciona com o **Change Data Feed** ligado na tabela, então já cuidamos disso
-    aqui. Precisa da sessão `spark` (que o runtime do Databricks entrega de bandeja) e devolve o
+    O delta-sync exige o **Change Data Feed** ligado na tabela, então já cuidamos disso
+    aqui. Precisa da sessão `spark` (disponível no runtime do Databricks) e devolve o
     nome de três níveis da tabela.
     """
     linhas = [(i + 1, texto) for i, texto in enumerate(POLITICAS)]
@@ -83,7 +83,7 @@ def criar_indice() -> str:
             endpoint_name=ENDPOINT_VECTOR_SEARCH,
             index_name=INDICE_POLITICAS,
             source_table_name=TABELA_POLITICAS,
-            pipeline_type="TRIGGERED",            # ressincroniza quando a gente pedir
+            pipeline_type="TRIGGERED",            # ressincroniza sob demanda
             primary_key="id",
             embedding_source_column="texto",       # o Databricks calcula e mantém os vetores
             embedding_model_endpoint_name=ENDPOINT_EMBEDDINGS,
@@ -101,7 +101,7 @@ def retriever_tool():
     from databricks_langchain import VectorSearchRetrieverTool
 
     # Índice com embeddings gerenciados: a coluna de texto já está declarada no próprio índice,
-    # então NÃO passamos `text_column` aqui (o Vector Search reclama se a gente insistir).
+    # então NÃO passamos `text_column` aqui (a validação rejeita o parâmetro nesse caso).
     return VectorSearchRetrieverTool(
         index_name=INDICE_POLITICAS,
         num_results=3,
