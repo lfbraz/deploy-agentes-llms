@@ -25,7 +25,7 @@ from dataclasses import dataclass
 # É aqui que tudo vai morar no Unity Catalog: o catálogo e o schema das funções, da tabela
 # de políticas e do índice.
 # --------------------------------------------------------------------------------------
-CATALOGO = os.getenv("UC_CATALOG", "main")
+CATALOGO = os.getenv("UC_CATALOG", "aula_07")
 SCHEMA = os.getenv("UC_SCHEMA", "default")
 
 
@@ -47,6 +47,16 @@ ENDPOINT_LLM = os.getenv("ENDPOINT_LLM_AGENTE", "databricks-claude-sonnet-4-5")
 ENDPOINT_EMBEDDINGS = os.getenv("ENDPOINT_EMBEDDINGS", "databricks-gte-large-en")
 # Endpoint (compute) de Vector Search que serve o índice.
 ENDPOINT_VECTOR_SEARCH = os.getenv("ENDPOINT_VECTOR_SEARCH", "agente_suporte_vs")
+
+# --------------------------------------------------------------------------------------
+# Experimento do MLflow (onde caem os traces e o feedback dos exemplos 01/03).
+# --------------------------------------------------------------------------------------
+# O experimento é um objeto de workspace (caminho tipo /Users/...), NÃO um objeto UC de três
+# níveis. Mas dá para mandar os TRACES dele para tabelas no Unity Catalog — é o que fazemos aqui,
+# apontando para o schema aula_07.default com o prefixo `experimento_aula_07`.
+MLFLOW_EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT")            # opcional: caminho de workspace explícito
+TRACE_TABLE_PREFIX = os.getenv("MLFLOW_TRACE_PREFIX", "experimento_aula_07")
+SQL_WAREHOUSE_ID = os.getenv("MLFLOW_TRACING_SQL_WAREHOUSE_ID")   # necessário p/ traces no UC
 
 
 # O system prompt do agente — o coração da "tripla" que vai para o Prompt Registry.

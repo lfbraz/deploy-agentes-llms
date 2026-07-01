@@ -61,11 +61,17 @@ recursos governados:
 
    No `aula-07/.env`, defina:
    - `DATABRICKS_HOST` e `DATABRICKS_TOKEN` (workspace + Personal Access Token);
-   - `UC_CATALOG`/`UC_SCHEMA` — catálogo.schema **com permissão de escrita** (padrão `main.default`);
+   - `UC_CATALOG`/`UC_SCHEMA` — catálogo.schema onde tudo mora (padrão `aula_07.default`). O
+     `00_setup` cria o catálogo/schema se faltarem (`CREATE CATALOG IF NOT EXISTS`);
    - `ENDPOINT_LLM_AGENTE` — endpoint que suporte **tool calling** (ex.: `databricks-claude-sonnet-4-5`).
      **Não** use o `databricks-gpt-oss-20b` (não faz function calling);
    - `ENDPOINT_EMBEDDINGS` — endpoint de embeddings do índice de Vector Search;
    - `ENDPOINT_VECTOR_SEARCH` — nome do endpoint (compute) de Vector Search.
+
+   Para os **traces/feedback** (exemplos 01/03) irem para tabelas no Unity Catalog (`aula_07.default`,
+   prefixo `experimento_aula_07`), ligue o preview **"OpenTelemetry on Databricks"** e informe um
+   SQL warehouse em `MLFLOW_TRACING_SQL_WAREHOUSE_ID`. Sem isso, os traces caem num experimento comum
+   de workspace (`/Users/<você>/experimento_aula_07`) — o resto da aula funciona igual.
 
 > O `.env` (com suas credenciais) **nunca** é versionado — ele está no `.gitignore`.
 

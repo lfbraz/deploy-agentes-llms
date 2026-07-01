@@ -77,7 +77,58 @@ def configurar_mlflow() -> None:
         mlflow.set_registry_uri("databricks-uc")
     except Exception:
         pass
+    _configurar_experimento(mlflow)
     _CONFIGURADO = True
+
+
+def _caminho_experimento() -> str | None:
+    """O caminho do experimento: usa MLFLOW_EXPERIMENT ou monta /Users/<você>/experimento_aula_07."""
+    from .config import MLFLOW_EXPERIMENT
+
+    if MLFLOW_EXPERIMENT:
+        return MLFLOW_EXPERIMENT
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        eu = WorkspaceClient().current_user.me().user_name
+        return f"/Users/{eu}/experimento_aula_07"
+    except Exception:
+        return None
+
+
+def _configurar_experimento(mlflow) -> None:
+    """Escolhe o experimento e, quando dá, manda os traces para tabelas no Unity Catalog.
+
+    Gravar traces no UC precisa de um SQL warehouse (MLFLOW_TRACING_SQL_WAREHOUSE_ID) e do preview
+    "OpenTelemetry on Databricks" ligado. Se algo faltar, caímos num experimento comum de workspace
+    — sem travar o resto do notebook.
+    """
+    from .config import CATALOGO, SCHEMA, SQL_WAREHOUSE_ID, TRACE_TABLE_PREFIX
+
+    nome = _caminho_experimento()
+    if not nome:
+        return
+
+    if SQL_WAREHOUSE_ID:
+        try:
+            os.environ["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] = SQL_WAREHOUSE_ID
+            from mlflow.entities.trace_location import UnityCatalog
+
+            mlflow.set_experiment(
+                experiment_name=nome,
+                trace_location=UnityCatalog(catalog_name=CATALOGO, schema_name=SCHEMA,
+                                            table_prefix=TRACE_TABLE_PREFIX),
+            )
+            print(f"traces indo para o Unity Catalog: {CATALOGO}.{SCHEMA}.{TRACE_TABLE_PREFIX}_*")
+            return
+        except Exception as e:
+            print("aviso: não deu para vincular os traces ao Unity Catalog (precisa do preview "
+                  f"'OpenTelemetry on Databricks' + SQL warehouse). Usando experimento comum. {e}")
+
+    try:
+        mlflow.set_experiment(nome)
+    except Exception as e:
+        print(f"aviso: não consegui configurar o experimento '{nome}': {e}")
 
 
 def nome_uc(objeto: str) -> str:

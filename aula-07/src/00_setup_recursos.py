@@ -62,6 +62,26 @@ print(f"embeddings      : {ENDPOINT_EMBEDDINGS}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 0) Criar o catálogo e o schema (se ainda não existirem)
+# MAGIC
+# MAGIC Tudo da Aula 07 mora em `aula_07.default`. Criamos o catálogo/schema aqui — idempotente, e no
+# MAGIC Free Edition você costuma ter permissão para isso (é o dono do próprio workspace).
+
+# COMMAND ----------
+
+try:
+    spark.sql(f"CREATE CATALOG IF NOT EXISTS {CATALOGO}")            # noqa: F821 (spark é global)
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOGO}.{SCHEMA}")    # noqa: F821
+    print(f">> catálogo/schema prontos: {CATALOGO}.{SCHEMA}")
+except NameError:
+    raise SystemExit("Rode este passo dentro de um workspace Databricks (a sessão `spark` "
+                     "precisa existir) ou via databricks-connect.")
+except Exception as e:
+    print(f"aviso: não consegui criar {CATALOGO}.{SCHEMA} (talvez sem permissão): {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 1) Registrar as UC Functions (as ferramentas do agente)
 # MAGIC
 # MAGIC `DatabricksFunctionClient.create_python_function` serializa cada função Python (com type hints
