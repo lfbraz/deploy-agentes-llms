@@ -100,11 +100,12 @@ def retriever_tool():
     exigir_databricks(libs=("databricks_langchain",))
     from databricks_langchain import VectorSearchRetrieverTool
 
+    # Índice com embeddings gerenciados: a coluna de texto já está declarada no próprio índice,
+    # então NÃO passamos `text_column` aqui (o Vector Search reclama se a gente insistir).
     return VectorSearchRetrieverTool(
         index_name=INDICE_POLITICAS,
         num_results=3,
         columns=["id", "texto"],
-        text_column="texto",
         tool_name="buscar_politica",
         tool_description=(
             "Busca a política/FAQ da loja na base de conhecimento (troca, frete, garantia, "
