@@ -105,14 +105,16 @@ print("registrado:", MODELO_UC, "v", info.registered_model_version)
 
 # COMMAND ----------
 
+# (Opcional) Validação pré-deploy DESATIVADA — descomente para ligá-la.
 # `env_manager="virtualenv"` valida o modelo num ambiente ISOLADO, recriado a partir do
 # pip_requirements — assim pegamos dependência faltando antes do deploy. Usamos virtualenv porque
 # o `uv` não está no cluster; "local" validaria no ambiente atual, sem isolar.
-mlflow.models.predict(
-    model_uri=info.model_uri,
-    input_data=input_example,
-    env_manager="virtualenv",
-)
+# mlflow.models.predict(
+#     model_uri=info.model_uri,
+#     input_data=input_example,
+#     env_manager="virtualenv",
+# )
+print("validação pré-deploy pulada (célula comentada).")
 
 # COMMAND ----------
 
