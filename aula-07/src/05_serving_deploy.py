@@ -111,7 +111,7 @@ print("registrado:", MODELO_UC, "v", info.registered_model_version)
 mlflow.models.predict(
     model_uri=info.model_uri,
     input_data=input_example,
-    env_manager="local",
+    env_manager="virtualenv",
 )
 
 # COMMAND ----------
