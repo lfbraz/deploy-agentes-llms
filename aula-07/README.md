@@ -47,7 +47,7 @@ recursos governados:
 
 ## 2. Pré-requisitos e configuração (obrigatório)
 
-1. **Python 3.10+** e as dependências (a partir da raiz do repositório):
+1. **Python 3.12** e as dependências (a partir da raiz do repositório):
 
    ```bash
    pip install -r requirements.txt   # mlflow, databricks-langchain, databricks-vectorsearch,

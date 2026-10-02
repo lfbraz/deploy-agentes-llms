@@ -10,9 +10,6 @@ python-dotenv>=1.0.0
 numpy>=1.24.0
 sentence-transformers>=2.2.0
 faiss-cpu>=1.7.4
-# chromadb 1.x são wheels binárias (cp39-abi3) bloqueadas (403) pelo proxy pip da
-# Databricks; 0.5.x são wheels pure-Python (py3-none-any) e instalam normalmente.
-chromadb>=0.4.0,<0.6.0
 requests>=2.31.0
 
 # Aula 05 — segurança e guardrails com Databricks AI Gateway (hands on no notebook)
@@ -37,6 +34,7 @@ mlflow>=3.6.0               # mlflow.genai.evaluate, scorers, invoke_judge_model
 databricks-langchain>=0.4.0    # ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
 databricks-vectorsearch>=0.40  # VectorSearchClient: criar/consultar o índice de AI Search (RAG)
 unitycatalog-ai>=0.3.0         # DatabricksFunctionClient: registrar/usar UC Functions como tools
+mcp<2                          # o mcp 2.x quebra o import do databricks-langchain (via langchain-mcp-adapters)
 pytest>=8.0.0                  # gate de aprovação (testes unitários do agente) — exemplo 04 + CI
 # mlflow já listado acima; langchain-core (via databricks-langchain) fornece as mensagens.
 # databricks-agents>=1.1.0     # agents.deploy() para Model Serving (exemplo 05; instalado no notebook)

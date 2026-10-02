@@ -194,12 +194,14 @@ de controlar e escalar).
 
 ## Como preparar o ambiente
 
-1. **Instale o Python 3.10 ou mais novo.**
+1. **Instale o Python 3.12.** Use exatamente essa versão: o `databricks-connect` (usado na Aula 07)
+   só funciona no Python 3.12. Com o 3.13 ou mais novo, o `pip` não encontra uma combinação de
+   versões compatível e a instalação falha.
 
 2. **Crie um ambiente virtual e instale as dependências** (na raiz do repositório):
 
    ```bash
-   python -m venv .venv
+   python3.12 -m venv .venv
    ```
 
    ```bash
@@ -209,6 +211,9 @@ de controlar e escalar).
    ```bash
    pip install -r requirements.txt
    ```
+
+   A instalação leva alguns minutos: são muitas bibliotecas e o `pip` precisa conferir a
+   compatibilidade entre elas.
 
 3. **Configure as chaves de cada aula.** As pastas `aula-02/` a `aula-08/` têm um arquivo
    `.env.example` explicando o que preencher (a Aula 01 usa o `.env.example` da raiz). Copie para
