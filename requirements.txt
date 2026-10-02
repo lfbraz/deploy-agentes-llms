@@ -10,9 +10,6 @@ python-dotenv>=1.0.0
 numpy>=1.24.0
 sentence-transformers>=2.2.0
 faiss-cpu>=1.7.4
-# chromadb 1.x são wheels binárias (cp39-abi3) bloqueadas (403) pelo proxy pip da
-# Databricks; 0.5.x são wheels pure-Python (py3-none-any) e instalam normalmente.
-chromadb>=0.4.0,<0.6.0
 requests>=2.31.0
 
 # Aula 05 — segurança e guardrails com Databricks AI Gateway (hands on no notebook)
@@ -34,9 +31,15 @@ mlflow>=3.6.0               # mlflow.genai.evaluate, scorers, invoke_judge_model
 # A Aula 07 roda SEMPRE contra o Databricks (não há modo offline). O agente usa um endpoint
 # Foundation Model (Claude), tools como UC Functions e RAG por Vector Search. Requer
 # DATABRICKS_HOST/DATABRICKS_TOKEN (aula-07/.env) e:
-databricks-langchain>=0.4.0    # ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
-databricks-vectorsearch>=0.40  # VectorSearchClient: criar/consultar o índice de AI Search (RAG)
-unitycatalog-ai>=0.3.0         # DatabricksFunctionClient: registrar/usar UC Functions como tools
+databricks-langchain>=0.20.0   # ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
+databricks-vectorsearch>=0.75  # VectorSearchClient: criar/consultar o índice de AI Search (RAG)
+unitycatalog-ai[databricks]>=0.3.2  # DatabricksFunctionClient: registrar/usar UC Functions como tools
+# Limites que guiam o pip direto para versões compatíveis. Sem eles, o pip testa versões
+# antigas uma a uma e termina com o erro `resolution-too-deep`:
+databricks-connect>=17.0,<17.1 # vem pelo unitycatalog-ai[databricks]; exige Python 3.12
+protobuf>=5.29.5,<6            # o databricks-vectorsearch exige protobuf<6
+grpcio-status>=1.71.2,<1.72    # última linha do grpcio-status compatível com protobuf<6
+mcp<2                          # o mcp 2.x quebra o import do databricks-langchain (via langchain-mcp-adapters)
 pytest>=8.0.0                  # gate de aprovação (testes unitários do agente) — exemplo 04 + CI
 # mlflow já listado acima; langchain-core (via databricks-langchain) fornece as mensagens.
 # databricks-agents>=1.1.0     # agents.deploy() para Model Serving (exemplo 05; instalado no notebook)
