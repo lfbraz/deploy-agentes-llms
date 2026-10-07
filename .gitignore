@@ -19,6 +19,7 @@ env/
 # MLflow / artefatos de execução (Aulas 06-07)
 mlruns/
 mlartifacts/
+.mlflow/
 mlflow.db
 *.db
 
