@@ -63,23 +63,29 @@ def criar_tabela_politicas(spark) -> str:
     return TABELA_POLITICAS
 
 
-def criar_indice() -> str:
-    """Garante que o endpoint e o índice de Vector Search existem — criando-os só se faltarem."""
+def criar_indice(timeout_min: int = 20) -> str:
+    """Garante que o endpoint e o índice de Vector Search existem e estão prontos (ONLINE)."""
+    import datetime
+
     exigir_databricks(libs=("databricks.vector_search",))
     from databricks.vector_search.client import VectorSearchClient
 
     vsc = VectorSearchClient(disable_notice=True)
+    timeout = datetime.timedelta(minutes=timeout_min)
 
     # 1) O endpoint (o compute que serve o índice). Se já estiver de pé, seguimos em frente.
     nomes = {e["name"] for e in vsc.list_endpoints().get("endpoints", [])}
     if ENDPOINT_VECTOR_SEARCH not in nomes:
         vsc.create_endpoint_and_wait(name=ENDPOINT_VECTOR_SEARCH, endpoint_type="STANDARD")
 
-    # 2) O índice em si, com os embeddings por conta do Databricks. Se já existe, não mexemos.
+    # 2) O índice. Só criamos se ele NÃO existir (404); qualquer outro erro (ex.: 500) sobe.
     try:
-        vsc.get_index(ENDPOINT_VECTOR_SEARCH, INDICE_POLITICAS).describe()
-    except Exception:
-        vsc.create_delta_sync_index_and_wait(
+        indice = vsc.get_index(ENDPOINT_VECTOR_SEARCH, INDICE_POLITICAS)
+        estado = indice.describe()["status"]
+    except Exception as e:
+        if getattr(e, "status_code", None) != 404 and "NOT_FOUND" not in str(e).upper():
+            raise
+        indice = vsc.create_delta_sync_index(
             endpoint_name=ENDPOINT_VECTOR_SEARCH,
             index_name=INDICE_POLITICAS,
             source_table_name=TABELA_POLITICAS,
@@ -88,6 +94,28 @@ def criar_indice() -> str:
             embedding_source_column="texto",       # o Databricks calcula e mantém os vetores
             embedding_model_endpoint_name=ENDPOINT_EMBEDDINGS,
         )
+        estado = {"ready": False}
+    else:
+        # Já existe mas não está pronto (ex.: sync anterior falhou): dispara um novo sync.
+        if not estado.get("ready"):
+            print(f"Índice existe mas não está pronto ({estado.get('detailed_state')}); "
+                  "disparando sync...")
+            try:
+                indice.sync()
+            except Exception as e:
+                if getattr(e, "status_code", None) != 409:   # 409 = já há um sync em andamento
+                    raise
+
+    # 3) Espera ficar ONLINE. No Free Edition, a falha típica aqui é a cota de serverless.
+    if not estado.get("ready"):
+        try:
+            indice.wait_until_ready(verbose=True, timeout=timeout)
+        except Exception as e:
+            raise RuntimeError(
+                f"O índice {INDICE_POLITICAS} não ficou pronto: {e}\n"
+                "No Free Edition, o pipeline de sync costuma falhar por RESOURCE_EXHAUSTED (cota de "
+                "compute serverless). Pare o SQL warehouse e outros computes serverless e rode de novo."
+            ) from e
     return INDICE_POLITICAS
 
 
