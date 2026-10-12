@@ -84,7 +84,7 @@ class ConfigAgente:
     versao: int = 1
     system_prompt: str = SYSTEM_PROMPT_PADRAO.replace("{{loja}}", LOJA)
     endpoint: str = ENDPOINT_LLM           # deve suportar tool calling
-    temperatura: float = 0.1
+    temperatura: float = 0.0              # 0 = respostas o mais estáveis possível (bom p/ o gate)
     max_tokens: int = 512
     autor: str = "luiz"
 

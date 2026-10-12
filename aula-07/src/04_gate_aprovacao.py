@@ -16,16 +16,18 @@ falhar e o recoloca para o gate voltar a passar.
 
 Os testes executam o agente real (Claude + UC Functions + Vector Search), então precisam de
 credenciais do Databricks. Sem elas, os testes são **pulados** (a esteira fica verde até você
-configurar os segredos). Numa evolução natural, esses asserts poderiam virar *scorers*/
-LLM-as-a-Judge (Aula 6); aqui ficamos na verificação determinística, mais simples e didática.
+configurar os segredos). Três formas de checar a resposta, da mais simples à mais flexível:
+texto exato, regex (aceita variações) e um *scorer* LLM-as-a-judge (Aula 6).
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 import pytest
+from mlflow.genai.scorers import Correctness
 
 # Deixa o pacote `agente` ao alcance do import, não importa de que pasta o pytest seja chamado.
 _dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +38,11 @@ while _dir != os.path.dirname(_dir):
     _dir = os.path.dirname(_dir)
 
 from agente.agente_suporte import responder
+from agente.config import ENDPOINT_LLM
 from agente.mlflow_databricks import credenciais_ok
+
+# Modelo juiz do scorer (mesmo formato da Aula 6). Por padrão, o próprio LLM do agente.
+JUIZ = "databricks:/" + os.getenv("ENDPOINT_JUIZ", ENDPOINT_LLM)
 
 # Sem credenciais não dá para executar o agente real, então o módulo inteiro é pulado.
 pytestmark = pytest.mark.skipif(
@@ -50,15 +56,34 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------------------
 
 def test_garantia_eletronicos_cita_12_meses():
-    """Política que está na base -> o RAG tem de trazer os 12 meses de garantia."""
+    """Política que está na base -> o RAG tem de trazer os 12 meses de garantia.
+
+    Regex em vez de texto exato: o LLM pode escrever "12 meses", "doze meses" ou "1 ano".
+    """
     r = responder("Qual a garantia dos eletrônicos?")
-    assert "12 meses" in r.texto.lower(), f"esperava '12 meses', veio: {r.texto!r}"
+    assert re.search(r"\b(12|doze) meses\b|\b(1|um) ano\b", r.texto.lower()), \
+        f"esperava '12 meses' (ou equivalente), veio: {r.texto!r}"
 
 
 def test_prazo_de_troca_30_dias():
     """Outra política conhecida -> a resposta tem de citar os 30 dias de troca."""
     r = responder("Posso trocar um produto comprado há 20 dias?")
     assert "30 dias" in r.texto.lower(), f"esperava '30 dias', veio: {r.texto!r}"
+
+
+def test_reembolso_correto_segundo_llm_juiz():
+    """LLM-as-a-judge: o scorer `Correctness` (Aula 6) decide se a resposta traz o fato esperado.
+
+    O juiz avalia o *significado* ("7" ou "sete" dias úteis) e devolve a justificativa (rationale).
+    """
+    pergunta = "Em quanto tempo recebo o estorno depois que a devolução é aprovada?"
+    r = responder(pergunta)
+    fb = Correctness(model=JUIZ)(
+        inputs={"pergunta": pergunta},
+        outputs=r.texto,
+        expectations={"expected_facts": ["O estorno ocorre em até 7 dias úteis."]},
+    )
+    assert fb.value == "yes", f"juiz reprovou: {fb.rationale} | resposta: {r.texto!r}"
 
 
 def test_status_pedido_usa_uc_function():

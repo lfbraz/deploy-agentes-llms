@@ -125,8 +125,10 @@ ligada à **trace** — sinal que alimenta a avaliação e o gate.
 pytest aula-07/src/04_gate_aprovacao.py -v
 ```
 
-O gate verifica **situações conhecidas** (garantia → "12 meses", troca → "30 dias", pedido 1002 →
-status real vindo da tabela `pedidos`). *Exit code* != 0 **bloqueia o merge** no CI.
+O gate verifica **situações conhecidas** com três tipos de checagem: **regex** (garantia → "12 meses"
+ou equivalente), **texto exato** (troca → "30 dias"; pedido 1002 → status real da tabela `pedidos`) e
+um **LLM-as-a-judge** (scorer `Correctness`: reembolso → "7 dias úteis"). O agente roda com
+`temperature=0` para respostas mais estáveis. *Exit code* != 0 **bloqueia o merge** no CI.
 
 ### Passo 5 — Servir o agente (deploy real)
 
