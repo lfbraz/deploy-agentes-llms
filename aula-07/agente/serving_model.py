@@ -39,8 +39,8 @@ No registro, listamos os **recursos governados** que o agente usa (o exemplo 05 
 from mlflow.models import set_model
 
 from agente.agente_suporte import construir_agente_databricks
-from agente.config import CONFIG_PADRAO
 
-# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e o define
-# como o modelo do artefato.
-set_model(construir_agente_databricks(CONFIG_PADRAO))
+# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e o define como o
+# modelo do artefato. O system prompt é lido do Prompt Registry (`champion`) a cada requisição —
+# o endpoint roda como o Service Principal do exemplo 00b, que tem acesso ao prompt.
+set_model(construir_agente_databricks())

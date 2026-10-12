@@ -38,11 +38,12 @@ def em_model_serving() -> bool:
 
 
 def credenciais_ok() -> bool:
-    """Há como autenticar no Databricks (runtime, Model Serving ou HOST/TOKEN no ambiente)?"""
+    """Há como autenticar (runtime, Model Serving, HOST+TOKEN ou HOST+OAuth M2M de um SP)?"""
+    oauth_m2m = os.getenv("DATABRICKS_CLIENT_ID") and os.getenv("DATABRICKS_CLIENT_SECRET")
     return (
         em_databricks()
         or em_model_serving()
-        or bool(os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN"))
+        or bool(os.getenv("DATABRICKS_HOST") and (os.getenv("DATABRICKS_TOKEN") or oauth_m2m))
     )
 
 
@@ -89,8 +90,11 @@ def configurar_mlflow() -> None:
     import mlflow
 
     if em_model_serving():
-        # No serving, o endpoint já cuida de auth e tracing — não reconfiguramos tracking/registry
-        # nem experimento (não há workspace-path aqui, e mexer nisso só atrapalharia).
+        # No serving, o deploy já define auth e experimento (MLFLOW_EXPERIMENT_ID). Só apontamos
+        # tracking e registry para o Databricks: sem isso, o MLflow do container usa um sqlite
+        # local e o `load_prompt` (que consulta o experimento ativo) falha.
+        mlflow.set_tracking_uri("databricks")
+        mlflow.set_registry_uri("databricks-uc")
         _CONFIGURADO = True
         return
 
@@ -104,19 +108,33 @@ def configurar_mlflow() -> None:
     _CONFIGURADO = True
 
 
-def _caminho_experimento() -> str | None:
-    """O caminho do experimento: usa MLFLOW_EXPERIMENT ou monta /Users/<você>/experimento_aula_07."""
-    from .config import MLFLOW_EXPERIMENT
-
-    if MLFLOW_EXPERIMENT:
-        return MLFLOW_EXPERIMENT
+def _caminho_experimento(explicito: str | None, nome: str) -> str | None:
+    """O caminho do experimento: o explícito (env) ou /Users/<você>/<nome>."""
+    if explicito:
+        return explicito
     try:
         from databricks.sdk import WorkspaceClient
 
         eu = WorkspaceClient().current_user.me().user_name
-        return f"/Users/{eu}/experimento_aula_07"
+        return f"/Users/{eu}/{nome}"
     except Exception:
         return None
+
+
+def usar_experimento_producao():
+    """Ativa o experimento de PRODUÇÃO e o devolve (objeto `Experiment`).
+
+    É nele que o exemplo 05 registra o modelo, e é o id dele que o deploy passa ao endpoint
+    (`MLFLOW_EXPERIMENT_ID`) para gravar as traces e o feedback. Assim o uso real fica separado das
+    demos dos notebooks (`experimento_aula_07`).
+    """
+    import mlflow
+
+    from .config import MLFLOW_EXPERIMENT_PROD
+
+    configurar_mlflow()
+    nome = _caminho_experimento(MLFLOW_EXPERIMENT_PROD, nome="agente_suporte_producao")
+    return mlflow.set_experiment(nome)
 
 
 def _configurar_experimento(mlflow) -> None:
@@ -126,9 +144,9 @@ def _configurar_experimento(mlflow) -> None:
     "OpenTelemetry on Databricks" ligado. Se algo faltar, caímos num experimento comum de workspace
     — sem travar o resto do notebook.
     """
-    from .config import CATALOGO, SCHEMA, SQL_WAREHOUSE_ID, TRACE_TABLE_PREFIX
+    from .config import CATALOGO, MLFLOW_EXPERIMENT, SCHEMA, SQL_WAREHOUSE_ID, TRACE_TABLE_PREFIX
 
-    nome = _caminho_experimento()
+    nome = _caminho_experimento(MLFLOW_EXPERIMENT, nome="experimento_aula_07")
     if not nome:
         return
 

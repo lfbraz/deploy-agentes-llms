@@ -49,6 +49,7 @@ import mlflow
 
 from agente.config import LOJA, PROMPT_UC, SYSTEM_PROMPT_PADRAO
 from agente.mlflow_databricks import configurar_mlflow, credenciais_ok
+from agente.prompt_registry import mover_alias, registrar_versao
 
 if not credenciais_ok():
     raise SystemExit("Configure DATABRICKS_HOST/TOKEN no aula-07/.env (veja o .env.example).")
@@ -59,63 +60,64 @@ print("prompt registrado em:", PROMPT_UC)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Três versões do prompt
-# MAGIC
-# MAGIC Cada `register_prompt` no mesmo nome incrementa a versão. O template mantém a variável
-# MAGIC `{{loja}}`. Guardamos metadados úteis (autor, endpoint testado) nas *tags* da versão.
+# MAGIC ## A versão em produção
+# MAGIC O Passo 0 registrou a **primeira versão produtiva** e apontou o alias `champion` para ela. É por
+# MAGIC esse alias que o agente carrega o prompt — o código nunca cita um número de versão.
 
 # COMMAND ----------
 
-def registrar_versao(template, autor):
-    return mlflow.genai.register_prompt(
-        name=PROMPT_UC, template=template, commit_message=f"versão por {autor}",
-        tags={"autor": autor, "tested_with": "databricks-claude-sonnet-4-5"})
-
-v1 = registrar_versao("Você é o atendente da loja {{loja}}. Responda em 1 frase.", "luiz")
-v2 = registrar_versao("Você é o atendente cordial da loja {{loja}}. Responda em 1 frase e cite "
-                      "a política quando houver.", "luiz")
-v3 = registrar_versao(SYSTEM_PROMPT_PADRAO, "ana")   # o prompt completo do agente (config.py)
-print(f"versões registradas: v{v1.version}, v{v2.version}, v{v3.version}")
+producao = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion")
+print(f"champion -> v{producao.version} | tags: {producao.tags}")
+print("\nformatado:", producao.format(loja=LOJA)[:120], "...")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Aliases: o que está em produção
-# MAGIC
-# MAGIC O código de produção resolve pelo **alias**, nunca pelo número da versão. Ao carregar, usamos
-# MAGIC `format(loja=...)` para preencher a variável `{{loja}}`.
+# MAGIC ## Uma nova versão candidata (challenger)
+# MAGIC Alguém do time propõe um ajuste. `register_prompt` cria uma versão **imutável** nova (se o texto
+# MAGIC for idêntico a uma versão existente, reaproveitamos a mesma). Ela entra como `challenger` — a
+# MAGIC produção não muda. Comparamos frase a frase o que mudou entre as duas versões.
 
 # COMMAND ----------
 
-mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v2.version)
-mlflow.genai.set_prompt_alias(PROMPT_UC, alias="challenger", version=v3.version)
+import difflib
+import re
 
-champion = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion")
-challenger = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@challenger")
-print("champion   -> v", champion.version)
-print("challenger -> v", challenger.version)
-print("\nprompt champion formatado:\n  ", champion.format(loja=LOJA)[:120], "...")
+variante = SYSTEM_PROMPT_PADRAO + " Ao final, pergunte se o cliente precisa de mais alguma ajuda."
+candidata = registrar_versao(variante, autor="Ana", mensagem="pergunta se pode ajudar em algo mais")
+mover_alias("challenger", candidata)
+
+def frases(texto):
+    return re.split(r"(?<=[.!?])\s+", texto.strip())   # uma frase por linha, para o diff
+
+for linha in difflib.unified_diff(frases(producao.template), frases(variante), lineterm="", n=0,
+                                  fromfile=f"v{producao.version} (champion)",
+                                  tofile=f"v{candidata} (challenger)"):
+    print(linha)
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Promover e fazer rollback (reapontar o ponteiro)
+# MAGIC Promover = mover o `champion` para a candidata; rollback = movê-lo de volta. O agente — local
+# MAGIC ou no endpoint servido — resolve o alias a cada requisição, então a troca vale **sem novo
+# MAGIC deploy** (o alias fica em cache por até 60 s).
 
 # COMMAND ----------
 
-# O challenger se saiu melhor nos testes -> vamos promovê-lo a champion.
-mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v3.version)
-print("após promover, champion -> v",
-      mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion").version)
+def versao_champion():
+    # cache_ttl_seconds=0: lê o alias na hora (o padrão guarda o alias em cache por 60 s)
+    return mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion", cache_ttl_seconds=0).version
 
-# Problema em produção -> rollback imediato: o alias volta para a versão anterior.
-mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=v2.version)
-print("após rollback, champion -> v",
-      mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion").version)
+mover_alias("champion", candidata)
+print("após promover, champion -> v", versao_champion())
+
+mover_alias("champion", producao.version)   # rollback: a produção volta para a versão anterior
+print("após rollback, champion -> v", versao_champion())
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC Versione o prompt como artefato **imutável** e deixe aliases móveis decidirem o que vai a
-# MAGIC produção. Deploy e rollback viram um reapontamento de ponteiro — a base de *blue-green* e
-# MAGIC *champion/challenger*. No serving (Passo 5), o agente carrega o prompt pelo alias `champion`.
+# MAGIC produção. Aqui a promoção foi manual, só para demonstrar; no fluxo real quem move o `champion`
+# MAGIC é o pipeline (Passo 6), e só depois que o **gate** aprova a versão candidata.

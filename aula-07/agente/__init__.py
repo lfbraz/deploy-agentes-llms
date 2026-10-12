@@ -6,6 +6,7 @@ monitoramento, precisamos do agente que será operado. Ele é construído basead
 **Databricks Agent Framework**:
 
     config.py        -> configuração central: a "tripla" versionada + nomes UC + endpoints
+    prompt_registry.py -> o system prompt versionado no Prompt Registry (aliases champion/challenger)
     ferramentas.py   -> tool use: UC Functions (status via tabela `pedidos`, frete) + UCFunctionToolkit
     base_vetorial.py -> RAG: índice de Vector Search (políticas) + VectorSearchRetrieverTool
     agente_suporte.py-> orquestra tudo num MLflow `ResponsesAgent` + mlflow.langchain.autolog
@@ -28,7 +29,7 @@ try:
 except Exception:
     pass
 
-from .config import CONFIG_PADRAO, ConfigAgente
+from .config import ConfigAgente
 from .agente_suporte import Resposta, registrar_feedback, responder
 
-__all__ = ["CONFIG_PADRAO", "ConfigAgente", "Resposta", "responder", "registrar_feedback"]
+__all__ = ["ConfigAgente", "Resposta", "responder", "registrar_feedback"]

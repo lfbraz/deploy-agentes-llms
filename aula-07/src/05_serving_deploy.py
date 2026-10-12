@@ -11,7 +11,8 @@
 # MAGIC 2. **registrar no Unity Catalog** (modelo com nome de três níveis, versões imutáveis);
 # MAGIC 3. **`agents.deploy`** — provisiona o endpoint de Model Serving do agente.
 # MAGIC
-# MAGIC **Pré-requisitos:** Passo 0 (recursos) e Passo 4 (gate verde). O deploy leva alguns minutos.
+# MAGIC **Pré-requisitos:** Passo 0 (recursos), Passo 0b (Service Principal) e Passo 4 (gate verde).
+# MAGIC O deploy leva alguns minutos.
 
 # COMMAND ----------
 
@@ -49,14 +50,17 @@ import mlflow
 
 from agente.config import (
     CATALOGO, ENDPOINT_EMBEDDINGS, ENDPOINT_LLM, FUNC_CALCULAR_FRETE, FUNC_STATUS_PEDIDO,
-    INDICE_POLITICAS, MODELO_UC, SCHEMA,
+    INDICE_POLITICAS, MODELO_UC, SCHEMA, SECRET_SCOPE,
 )
-from agente.mlflow_databricks import configurar_mlflow, credenciais_ok
+from agente.mlflow_databricks import credenciais_ok, usar_experimento_producao
 
 if not credenciais_ok():
     raise SystemExit("Configure DATABRICKS_HOST/TOKEN no aula-07/.env (veja o .env.example).")
 
-configurar_mlflow()
+# O modelo é registrado no experimento de PRODUÇÃO: é nele que o endpoint vai gravar as traces e
+# o feedback dos usuários — separado das demos (experimento_aula_07).
+exp_producao = usar_experimento_producao()
+print("experimento (produção):", exp_producao.name)
 print("modelo (Unity Catalog):", MODELO_UC)
 
 # COMMAND ----------
@@ -66,6 +70,9 @@ print("modelo (Unity Catalog):", MODELO_UC)
 # MAGIC
 # MAGIC Os `resources` listam tudo que o agente consome em tempo de execução. O serving usa essa lista
 # MAGIC para conceder as credenciais certas automaticamente (sem PAT embutido no código).
+# MAGIC
+# MAGIC O **prompt** não entra em `resources`: o endpoint o lê do Prompt Registry (`champion`) a cada
+# MAGIC requisição, rodando como o **Service Principal** do Passo 0b (veja o deploy abaixo).
 
 # COMMAND ----------
 
@@ -127,10 +134,24 @@ print("validação pré-deploy pulada (célula comentada).")
 # MAGIC Dentro do container de serving NÃO existe o `aula-07/.env`, então passamos os endpoints e o
 # MAGIC catálogo como `environment_vars`. Sem isso, o `config.py` cairia nos defaults (ex.:
 # MAGIC `databricks-claude-sonnet-4-5`) e o agente chamaria um endpoint inexistente (erro 404).
+# MAGIC
+# MAGIC A **identidade** do endpoint também vai por `environment_vars`: `DATABRICKS_CLIENT_ID` e
+# MAGIC `DATABRICKS_CLIENT_SECRET` do Service Principal (Passo 0b), **referenciados** no secret scope
+# MAGIC (`{{secrets/<scope>/<chave>}}`) — o serving resolve os valores; eles nunca aparecem no código.
 
 # COMMAND ----------
 
 from databricks import agents
+from databricks.sdk import WorkspaceClient
+
+# Free Edition: o limite de concorrência provisionada não comporta várias versões servidas ao
+# mesmo tempo (o agents.deploy mantém as anteriores no endpoint). Por isso removemos o deploy
+# anterior antes do novo. Em produção, você manteria a versão anterior para um rollback rápido.
+try:
+    agents.delete_deployment(MODELO_UC)
+    print("deploy anterior removido (limite do Free Edition)")
+except ValueError:
+    pass   # primeiro deploy: nada a remover
 
 deployment = agents.deploy(
     MODELO_UC, info.registered_model_version, scale_to_zero=True,
@@ -139,6 +160,11 @@ deployment = agents.deploy(
         "ENDPOINT_EMBEDDINGS": ENDPOINT_EMBEDDINGS,
         "UC_CATALOG": CATALOGO,
         "UC_SCHEMA": SCHEMA,
+        "MLFLOW_EXPERIMENT_ID": exp_producao.experiment_id,   # traces/feedback -> produção
+        # Identidade do endpoint: o Service Principal do Passo 0b (lê o prompt do registry).
+        "DATABRICKS_HOST": WorkspaceClient().config.host,
+        "DATABRICKS_CLIENT_ID": f"{{{{secrets/{SECRET_SCOPE}/client_id}}}}",
+        "DATABRICKS_CLIENT_SECRET": f"{{{{secrets/{SECRET_SCOPE}/client_secret}}}}",
     },
 )
 print("endpoint   :", deployment.endpoint_name)
@@ -155,15 +181,39 @@ print("review app :", getattr(deployment, "review_app_url", "—"))
 
 # COMMAND ----------
 
+from mlflow.deployments import get_deploy_client
+
+extras = None
 try:
-    cliente = mlflow.deployments.get_deploy_client("databricks")
-    resp = cliente.predict(endpoint=deployment.endpoint_name, inputs=input_example)
-    print(resp)
+    resp = get_deploy_client("databricks").predict(endpoint=deployment.endpoint_name,
+                                                   inputs=input_example)
+    extras = resp["custom_outputs"]   # trace_id, versão do prompt e ferramentas usadas
+    print("resposta:", resp["output"][-1]["content"][0]["text"])
+    print("extras  :", extras)
 except Exception as e:
     print("endpoint ainda provisionando — tente de novo em alguns minutos.\n", e)
 
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 5) Feedback do usuário na trace de produção
+# MAGIC O endpoint devolve o `trace_id` em `custom_outputs`. Na sua app, é ele que acompanha o clique
+# MAGIC de 👍/👎: o `registrar_feedback` grava o veredito como *assessment* HUMAN na trace, que está no
+# MAGIC **experimento de produção**.
+
+# COMMAND ----------
+
+from agente.agente_suporte import registrar_feedback
+
+if extras:
+    registrar_feedback(extras["trace_id"], util=True, comentario="resposta correta (via endpoint)")
+    print("👍 feedback gravado na trace de produção", extras["trace_id"])
+else:
+    print("endpoint ainda não respondeu — rode a célula anterior (e esta) quando estiver READY.")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC O agente está **servido** e governado: versão imutável no Unity Catalog, recursos declarados,
-# MAGIC credenciais automáticas e endpoint com *review app*. O Passo 6 amarra tudo numa esteira de CI/CD.
+# MAGIC credenciais automáticas, prompt pelo alias `champion`, traces e feedback no experimento de
+# MAGIC produção e endpoint com *review app*. O Passo 6 amarra tudo numa esteira de CI/CD.

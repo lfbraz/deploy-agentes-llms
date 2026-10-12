@@ -37,9 +37,10 @@ recursos governados:
 | Arquivo | Pilar (aula) | O que faz |
 |---------|--------------|-----------|
 | [`config.py`](agente/config.py) | versionamento/infra | a "tripla" (prompt+endpoint+geração) + nomes UC + endpoints |
+| [`prompt_registry.py`](agente/prompt_registry.py) | versionamento | o system prompt no **Prompt Registry**: versões imutáveis + aliases `champion`/`challenger` |
 | [`ferramentas.py`](agente/ferramentas.py) | tool use (Aulas 3-4) | **UC Functions** (SQL sobre a tabela `pedidos` + Python) + `UCFunctionToolkit` |
 | [`base_vetorial.py`](agente/base_vetorial.py) | RAG (Aula 4) | índice de **Vector Search** + `VectorSearchRetrieverTool` |
-| [`agente_suporte.py`](agente/agente_suporte.py) | observabilidade (Aula 6) | `ResponsesAgent` (tools + RAG) + `autolog` + feedback |
+| [`agente_suporte.py`](agente/agente_suporte.py) | observabilidade (Aula 6) | `ResponsesAgent` (tools + RAG) + `autolog` + prompt pelo alias + feedback |
 | [`mlflow_databricks.py`](agente/mlflow_databricks.py) | infra | pré-requisitos, tracking/registry no Unity Catalog |
 | [`serving_model.py`](agente/serving_model.py) | deploy | entrypoint *models-from-code* p/ `log_model` / `agents.deploy` |
 
@@ -82,15 +83,29 @@ recursos governados:
 
 Execute **na ordem** (a partir da raiz do repositório). Cada um é uma etapa do ciclo de vida.
 
-### Passo 0 — Provisionar os recursos (UC Functions + Vector Search)
+### Passo 0 — Provisionar os recursos (UC Functions + Vector Search + prompt)
 
 ```bash
 python aula-07/src/00_setup_recursos.py
 ```
 
 Idempotente: cria a **tabela de pedidos** (os dados reais da função de status), registra as
-**UC Functions** (tools) e cria a tabela de políticas + o **índice de Vector Search** (RAG).
+**UC Functions** (tools), cria a tabela de políticas + o **índice de Vector Search** (RAG) e
+registra a **primeira versão produtiva do prompt** no Prompt Registry, com o alias `champion`.
 Roda **dentro de um workspace Databricks** (precisa da sessão `spark`).
+
+### Passo 0b — A identidade do agente em produção (Service Principal)
+
+```bash
+python aula-07/src/00b_service_principal.py
+```
+
+O endpoint precisa ler o prompt do Prompt Registry, que não entra nos `resources` (credenciais
+automáticas) do serving. Este passo cria um **Service Principal**, guarda as credenciais OAuth dele
+num **secret scope** (`aula_07`) e concede o mínimo: `USE CATALOG`; no schema, `USE SCHEMA`,
+`EXECUTE`, `SELECT` e `CREATE FUNCTION` + `MANAGE` (o Prompt Registry exige esse trio até para
+**ler** o prompt — num projeto real, isole os prompts num schema próprio); `CAN_USE` no endpoint
+de Vector Search e `CAN_EDIT` no experimento de produção. Idempotente.
 
 ### Passo 1 — Desenvolver o agente (tools + RAG + observabilidade)
 
@@ -99,7 +114,8 @@ python aula-07/src/01_desenvolver_agente.py
 ```
 
 **Observe**: o agente chama **UC Functions** (status do pedido, frete), recupera a política no
-**Vector Search** (RAG) e cada requisição vira uma **trace** (via `autolog`).
+**Vector Search** (RAG) e cada requisição vira **uma trace** (via `autolog`), etiquetada com a
+**versão do prompt** carregada do registry (`prompts:/...@champion`).
 
 ### Passo 2 — Versionar o prompt (MLflow Prompt Registry)
 
@@ -107,8 +123,10 @@ python aula-07/src/01_desenvolver_agente.py
 python aula-07/src/02_registry_versionamento.py
 ```
 
-**Observe**: cada versão do prompt (com `{{variáveis}}`) é **imutável**, e **aliases móveis**
-(`champion`, `challenger`) decidem o que vai a produção.
+**Observe**: partindo da versão em produção (`champion`), registramos uma **candidata** imutável
+(`challenger`), comparamos as duas frase a frase e demonstramos promoção e rollback — terminando
+com a produção intacta. O agente (local ou no endpoint) resolve o alias a cada requisição, então
+mover o `champion` muda o prompt usado **sem novo deploy** (cache de até 60 s).
 
 ### Passo 3 — Feedback humano
 
@@ -136,9 +154,16 @@ um **LLM-as-a-judge** (scorer `Correctness`: reembolso → "7 dias úteis"). O a
 python aula-07/src/05_serving_deploy.py
 ```
 
-`log_model` (declarando os `resources`) → registro no **Unity Catalog** → `agents.deploy`.
-**Observe**: o endpoint herda as credenciais dos recursos automaticamente; a *review app* e a
-*inference table* nascem junto.
+`log_model` (declarando os `resources`) no **experimento de produção** → registro no **Unity
+Catalog** → `agents.deploy`. O endpoint roda como o **Service Principal** do Passo 0b
+(`DATABRICKS_CLIENT_ID`/`SECRET` referenciados no secret scope) e lê o prompt `@champion` do
+registry a cada requisição. **Observe**: o endpoint herda as credenciais dos recursos automaticamente e grava as traces em `/Users/<você>/agente_suporte_producao` — separado do
+`experimento_aula_07` das demos. A resposta traz o `trace_id` em `custom_outputs`, e o feedback do
+usuário (`registrar_feedback(trace_id, ...)`) é anexado a essa trace de produção.
+
+> **Free Edition:** o `agents.deploy` mantém as versões anteriores servidas no endpoint, e o limite
+> de concorrência provisionada do Free Edition não comporta várias. Por isso o Passo 5 remove o
+> deploy anterior antes do novo (em produção, você manteria a versão anterior para rollback).
 
 ### Passo 6 — Orquestrar: o pipeline ponta a ponta
 
@@ -146,8 +171,9 @@ python aula-07/src/05_serving_deploy.py
 python aula-07/src/06_pipeline_llmops.py
 ```
 
-**Observe**: registrar prompt → **gate (pytest)** → promover alias → servir → feedback, cada
-transição numa **trilha de auditoria** (a governança que separa um protótipo de um sistema enterprise).
+**Observe**: registrar o prompt como `challenger` → **gate (pytest) rodando com o challenger**
+(`PROMPT_ALIAS=challenger`) → promover a `champion` → servir → feedback, cada transição numa
+**trilha de auditoria** (a governança que separa um protótipo de um sistema enterprise).
 
 ### (Demo) Gate verde/vermelho — o CI/CD reagindo aos dados
 

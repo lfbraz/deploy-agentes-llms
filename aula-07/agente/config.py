@@ -3,9 +3,11 @@ config.py — a configuração central do agente e dos recursos no Unity Catalog
 ============================================================================
 
 Num agente LLM, o que muda toda semana não são os pesos de um modelo, e sim a tripla
-**system_prompt + modelo (endpoint) + parâmetros de geração**. É ela que o Prompt Registry
-versiona (exemplo 02) e para onde os aliases (champion/challenger) apontam. E o agente não vive
-sozinho: ele puxa **recursos governados no Unity Catalog** — as UC Functions (tools), o índice de
+**system_prompt + modelo (endpoint) + parâmetros de geração**. O system prompt vive no **Prompt
+Registry** (Unity Catalog): o agente o carrega pelo alias (`champion`) a cada requisição — aqui
+fica só o texto da **primeira versão produtiva**, registrada no setup (exemplo 00).
+
+E o agente não vive sozinho: ele puxa **recursos governados no Unity Catalog** — as UC Functions (tools), o índice de
 Vector Search (RAG) e os endpoints de Model Serving. Para não espalhar strings hardcoded pela
 aula inteira, centralizamos tudo aqui, lido do ambiente (veja `aula-07/.env.example`).
 
@@ -19,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # --------------------------------------------------------------------------------------
 # Catálogo e schema do Unity Catalog onde ficam as funções, a tabela de políticas e o índice.
@@ -41,6 +43,13 @@ TABELA_POLITICAS = uc("politicas")                   # tabela Delta-fonte do RAG
 INDICE_POLITICAS = uc("politicas_idx")               # índice de Vector Search (RAG)
 MODELO_UC = os.getenv("MODELO_UC", uc("agente_suporte"))          # Registered Model (deploy)
 PROMPT_UC = os.getenv("PROMPT_UC", uc("agente_suporte_prompt"))   # Prompt Registry
+PROMPT_ALIAS = "champion"   # alias que o agente usa por padrão (sobrescreva com a env PROMPT_ALIAS)
+AUTOR = "Luiz Braz"
+
+# A identidade do endpoint em produção (exemplo 00b): um Service Principal cujas credenciais OAuth
+# ficam num secret scope — o deploy (exemplo 05) só referencia os segredos.
+SP_NOME = os.getenv("SP_NOME", "aula-07-agente-suporte")
+SECRET_SCOPE = os.getenv("SECRET_SCOPE", "aula_07")
 
 # Endpoints de Model Serving (Foundation Model API).
 ENDPOINT_LLM = os.getenv("ENDPOINT_LLM_AGENTE", "databricks-claude-sonnet-4-5")
@@ -57,9 +66,14 @@ ENDPOINT_VECTOR_SEARCH = os.getenv("ENDPOINT_VECTOR_SEARCH", "agente_suporte_vs"
 MLFLOW_EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT")            # opcional: caminho de workspace explícito
 TRACE_TABLE_PREFIX = os.getenv("MLFLOW_TRACE_PREFIX", "experimento_aula_07")
 SQL_WAREHOUSE_ID = os.getenv("MLFLOW_TRACING_SQL_WAREHOUSE_ID")   # necessário p/ traces no UC
+# Experimento de PRODUÇÃO: onde o modelo é registrado (exemplo 05) e onde caem as traces e o
+# feedback do endpoint servido — separado do experimento das demos. Padrão:
+# /Users/<você>/agente_suporte_producao.
+MLFLOW_EXPERIMENT_PROD = os.getenv("MLFLOW_EXPERIMENT_PROD")
 
 
-# O system prompt do agente — a parte central da "tripla" que vai para o Prompt Registry.
+# A PRIMEIRA VERSÃO PRODUTIVA do system prompt — o setup (exemplo 00) a registra no Prompt
+# Registry e aponta o alias `champion` para ela. Daí em diante, o agente lê sempre do registry.
 # O `{{loja}}` segue a sintaxe de variáveis do registry e é preenchido na formatação.
 SYSTEM_PROMPT_PADRAO = (
     "Você é o assistente de atendimento da loja {{loja}}. Seja cordial e responda em "
@@ -74,25 +88,23 @@ LOJA = os.getenv("NOME_LOJA", "Acme")
 
 @dataclass(frozen=True)
 class ConfigAgente:
-    """A "tripla" do agente, congelada num objeto só: prompt + endpoint + parâmetros de geração.
+    """A "tripla" do agente: prompt (pelo alias no registry) + endpoint + parâmetros de geração.
 
-    É este objeto que o Prompt Registry (exemplo 02) versiona e para onde os aliases
-    (champion/challenger) apontam. Aqui o `system_prompt` já chega formatado, sem
-    `{{variáveis}}` pendentes.
+    O alias é lido do ambiente na criação do objeto: `PROMPT_ALIAS=challenger` faz o mesmo agente
+    rodar com a versão candidata — é assim que o gate testa o que vai ser promovido (exemplo 06).
     """
 
-    versao: int = 1
-    system_prompt: str = SYSTEM_PROMPT_PADRAO.replace("{{loja}}", LOJA)
+    prompt_alias: str = field(default_factory=lambda: os.getenv("PROMPT_ALIAS", PROMPT_ALIAS))
     endpoint: str = ENDPOINT_LLM           # deve suportar tool calling
     temperatura: float = 0.0              # 0 = respostas o mais estáveis possível (bom p/ o gate)
     max_tokens: int = 512
-    autor: str = "luiz"
+    autor: str = AUTOR
 
     @property
-    def hash(self) -> str:
+    def prompt_uri(self) -> str:
+        return f"prompts:/{PROMPT_UC}@{self.prompt_alias}"
+
+    def hash(self, system_prompt: str) -> str:
         """Hash determinístico da tripla — a mesma config produz sempre o mesmo hash."""
-        corpo = f"{self.system_prompt}|{self.endpoint}|{self.temperatura}|{self.max_tokens}"
+        corpo = f"{system_prompt}|{self.endpoint}|{self.temperatura}|{self.max_tokens}"
         return hashlib.sha256(corpo.encode()).hexdigest()[:12]
-
-
-CONFIG_PADRAO = ConfigAgente()

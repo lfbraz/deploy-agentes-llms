@@ -126,11 +126,15 @@ def criar_indice(timeout_min: int = 20) -> str:
 def retriever_tool():
     """A tool que faz a busca no índice de Vector Search — o "R" do RAG, em forma de ferramenta."""
     exigir_databricks(libs=("databricks_langchain",))
+    from databricks.sdk import WorkspaceClient
     from databricks_langchain import VectorSearchRetrieverTool
 
     # Índice com embeddings gerenciados: a coluna de texto já está declarada no próprio índice,
     # então NÃO passamos `text_column` aqui (a validação rejeita o parâmetro nesse caso).
+    # O `workspace_client` repassa ao Vector Search a identidade do ambiente — inclusive o Service
+    # Principal (OAuth M2M) com que o endpoint roda em produção (exemplo 00b).
     return VectorSearchRetrieverTool(
+        workspace_client=WorkspaceClient(),
         index_name=INDICE_POLITICAS,
         num_results=3,
         columns=["id", "texto"],
