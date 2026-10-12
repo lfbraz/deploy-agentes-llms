@@ -38,11 +38,12 @@ def em_model_serving() -> bool:
 
 
 def credenciais_ok() -> bool:
-    """Há como autenticar no Databricks (runtime, Model Serving ou HOST/TOKEN no ambiente)?"""
+    """Há como autenticar (runtime, Model Serving, HOST+TOKEN ou HOST+OAuth M2M de um SP)?"""
+    oauth_m2m = os.getenv("DATABRICKS_CLIENT_ID") and os.getenv("DATABRICKS_CLIENT_SECRET")
     return (
         em_databricks()
         or em_model_serving()
-        or bool(os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN"))
+        or bool(os.getenv("DATABRICKS_HOST") and (os.getenv("DATABRICKS_TOKEN") or oauth_m2m))
     )
 
 
@@ -89,8 +90,11 @@ def configurar_mlflow() -> None:
     import mlflow
 
     if em_model_serving():
-        # No serving, o endpoint já cuida de auth e tracing — não reconfiguramos tracking/registry
-        # nem experimento (não há workspace-path aqui, e mexer nisso só atrapalharia).
+        # No serving, o deploy já define auth e experimento (MLFLOW_EXPERIMENT_ID). Só apontamos
+        # tracking e registry para o Databricks: sem isso, o MLflow do container usa um sqlite
+        # local e o `load_prompt` (que consulta o experimento ativo) falha.
+        mlflow.set_tracking_uri("databricks")
+        mlflow.set_registry_uri("databricks-uc")
         _CONFIGURADO = True
         return
 

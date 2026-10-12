@@ -11,7 +11,8 @@
 # MAGIC 2. **registrar no Unity Catalog** (modelo com nome de três níveis, versões imutáveis);
 # MAGIC 3. **`agents.deploy`** — provisiona o endpoint de Model Serving do agente.
 # MAGIC
-# MAGIC **Pré-requisitos:** Passo 0 (recursos) e Passo 4 (gate verde). O deploy leva alguns minutos.
+# MAGIC **Pré-requisitos:** Passo 0 (recursos), Passo 0b (Service Principal) e Passo 4 (gate verde).
+# MAGIC O deploy leva alguns minutos.
 
 # COMMAND ----------
 
@@ -49,7 +50,7 @@ import mlflow
 
 from agente.config import (
     CATALOGO, ENDPOINT_EMBEDDINGS, ENDPOINT_LLM, FUNC_CALCULAR_FRETE, FUNC_STATUS_PEDIDO,
-    INDICE_POLITICAS, MODELO_UC, PROMPT_UC, SCHEMA,
+    INDICE_POLITICAS, MODELO_UC, SCHEMA, SECRET_SCOPE,
 )
 from agente.mlflow_databricks import credenciais_ok, usar_experimento_producao
 
@@ -70,10 +71,8 @@ print("modelo (Unity Catalog):", MODELO_UC)
 # MAGIC Os `resources` listam tudo que o agente consome em tempo de execução. O serving usa essa lista
 # MAGIC para conceder as credenciais certas automaticamente (sem PAT embutido no código).
 # MAGIC
-# MAGIC O **prompt** é o único item que não entra em `resources`: o container de serving não acessa o
-# MAGIC Prompt Registry. Por isso resolvemos o alias `champion` aqui e **fixamos essa versão no
-# MAGIC modelo** (`model_config`), ligando a versão do modelo à do prompt (`prompts=`). Promover um
-# MAGIC prompt em produção = mover o `champion` e fazer um novo deploy.
+# MAGIC O **prompt** não entra em `resources`: o endpoint o lê do Prompt Registry (`champion`) a cada
+# MAGIC requisição, rodando como o **Service Principal** do Passo 0b (veja o deploy abaixo).
 
 # COMMAND ----------
 
@@ -83,19 +82,12 @@ from mlflow.models.resources import (
 
 input_example = {"input": [{"role": "user", "content": "Qual a garantia dos eletrônicos?"}]}
 
-# O prompt de produção é fixado AGORA: resolvemos o `champion` e embutimos essa versão no modelo
-# (o endpoint não acessa o Prompt Registry). `prompts=` liga a versão do modelo à do prompt.
-prompt = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion", cache_ttl_seconds=0)
-print(f"prompt fixado no deploy: {PROMPT_UC} v{prompt.version}")
-
 with mlflow.start_run():
     info = mlflow.pyfunc.log_model(
         name="agente_suporte",
         python_model=os.path.join(BASE, "agente", "serving_model.py"),  # models-from-code
         code_paths=[os.path.join(BASE, "agente")],                      # empacota o pacote
         input_example=input_example,
-        model_config={"prompt_template": prompt.template, "prompt_version": prompt.version},
-        prompts=[prompt],
         resources=[
             DatabricksServingEndpoint(endpoint_name=ENDPOINT_LLM),
             DatabricksServingEndpoint(endpoint_name=ENDPOINT_EMBEDDINGS),
@@ -142,10 +134,15 @@ print("validação pré-deploy pulada (célula comentada).")
 # MAGIC Dentro do container de serving NÃO existe o `aula-07/.env`, então passamos os endpoints e o
 # MAGIC catálogo como `environment_vars`. Sem isso, o `config.py` cairia nos defaults (ex.:
 # MAGIC `databricks-claude-sonnet-4-5`) e o agente chamaria um endpoint inexistente (erro 404).
+# MAGIC
+# MAGIC A **identidade** do endpoint também vai por `environment_vars`: `DATABRICKS_CLIENT_ID` e
+# MAGIC `DATABRICKS_CLIENT_SECRET` do Service Principal (Passo 0b), **referenciados** no secret scope
+# MAGIC (`{{secrets/<scope>/<chave>}}`) — o serving resolve os valores; eles nunca aparecem no código.
 
 # COMMAND ----------
 
 from databricks import agents
+from databricks.sdk import WorkspaceClient
 
 # Free Edition: o limite de concorrência provisionada não comporta várias versões servidas ao
 # mesmo tempo (o agents.deploy mantém as anteriores no endpoint). Por isso removemos o deploy
@@ -164,6 +161,10 @@ deployment = agents.deploy(
         "UC_CATALOG": CATALOGO,
         "UC_SCHEMA": SCHEMA,
         "MLFLOW_EXPERIMENT_ID": exp_producao.experiment_id,   # traces/feedback -> produção
+        # Identidade do endpoint: o Service Principal do Passo 0b (lê o prompt do registry).
+        "DATABRICKS_HOST": WorkspaceClient().config.host,
+        "DATABRICKS_CLIENT_ID": f"{{{{secrets/{SECRET_SCOPE}/client_id}}}}",
+        "DATABRICKS_CLIENT_SECRET": f"{{{{secrets/{SECRET_SCOPE}/client_secret}}}}",
     },
 )
 print("endpoint   :", deployment.endpoint_name)

@@ -112,16 +112,13 @@ def _loop_decisao(config: ConfigAgente, system_prompt: str, pergunta: str,
 @mlflow.trace(name="agente_suporte", span_type=SpanType.AGENT)
 def _executar(config: ConfigAgente, pergunta: str) -> tuple[str, list[str], int, str]:
     """Uma requisição = uma trace: carrega o prompt pelo alias, roda o loop e etiqueta a trace."""
-    if config.prompt_template:   # serving: versão fixada no deploy (exemplo 05)
-        template, versao = config.prompt_template, config.prompt_version
-    else:
-        try:
-            prompt = mlflow.genai.load_prompt(config.prompt_uri)   # dentro da trace -> vinculado
-        except Exception as e:
-            raise RuntimeError(f"Não consegui carregar {config.prompt_uri}. Rode o Passo 0 "
-                               "(00_setup_recursos) para registrar a versão produtiva.") from e
-        template, versao = prompt.template, prompt.version
-    system_prompt = template.replace("{{loja}}", LOJA)
+    try:
+        prompt = mlflow.genai.load_prompt(config.prompt_uri)   # dentro da trace -> fica vinculado
+    except Exception as e:
+        raise RuntimeError(f"Não consegui carregar {config.prompt_uri}. Rode o Passo 0 "
+                           "(00_setup_recursos) para registrar a versão produtiva.") from e
+    versao = prompt.version
+    system_prompt = prompt.format(loja=LOJA)
     if mlflow.get_current_active_span():   # sem trace ativa (ex.: validação do log_model), pula
         mlflow.update_current_trace(tags={
             "prompt_uri": config.prompt_uri,

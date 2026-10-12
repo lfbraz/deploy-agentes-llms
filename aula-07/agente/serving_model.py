@@ -14,15 +14,12 @@ No registro, listamos os **recursos governados** que o agente usa (o exemplo 05 
     from mlflow.models.resources import (
         DatabricksServingEndpoint, DatabricksVectorSearchIndex, DatabricksFunction)
     from agente.config import (ENDPOINT_LLM, ENDPOINT_EMBEDDINGS, INDICE_POLITICAS,
-                               FUNC_STATUS_PEDIDO, FUNC_CALCULAR_FRETE, MODELO_UC, PROMPT_UC)
+                               FUNC_STATUS_PEDIDO, FUNC_CALCULAR_FRETE, MODELO_UC)
 
-    prompt = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion")   # fixado no deploy
     with mlflow.start_run():
         info = mlflow.pyfunc.log_model(
             name="agente_suporte",
             python_model="agente/serving_model.py",          # <- este arquivo
-            model_config={"prompt_template": prompt.template, "prompt_version": prompt.version},
-            prompts=[prompt],                                 # liga modelo <-> versão do prompt
             resources=[
                 DatabricksServingEndpoint(endpoint_name=ENDPOINT_LLM),
                 DatabricksServingEndpoint(endpoint_name=ENDPOINT_EMBEDDINGS),
@@ -39,17 +36,11 @@ No registro, listamos os **recursos governados** que o agente usa (o exemplo 05 
     agents.deploy(MODELO_UC, info.registered_model_version)   # Model Serving
 """
 
-from mlflow.models import ModelConfig, set_model
+from mlflow.models import set_model
 
 from agente.agente_suporte import construir_agente_databricks
-from agente.config import ConfigAgente
 
-# O container de serving não acessa o Prompt Registry: o exemplo 05 resolve o `champion` no
-# deploy e passa a versão (texto + número) no `model_config`. Mudar o prompt em produção =
-# mover o alias + novo deploy — e cada versão do modelo fica ligada à versão exata do prompt.
-cfg = ModelConfig().to_dict()
-
-# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e o define
-# como o modelo do artefato.
-set_model(construir_agente_databricks(ConfigAgente(
-    prompt_template=cfg["prompt_template"], prompt_version=cfg["prompt_version"])))
+# Monta o agente (ChatDatabricks + UC tools + retriever de Vector Search) e o define como o
+# modelo do artefato. O system prompt é lido do Prompt Registry (`champion`) a cada requisição —
+# o endpoint roda como o Service Principal do exemplo 00b, que tem acesso ao prompt.
+set_model(construir_agente_databricks())

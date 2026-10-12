@@ -46,6 +46,11 @@ PROMPT_UC = os.getenv("PROMPT_UC", uc("agente_suporte_prompt"))   # Prompt Regis
 PROMPT_ALIAS = "champion"   # alias que o agente usa por padrão (sobrescreva com a env PROMPT_ALIAS)
 AUTOR = "Luiz Braz"
 
+# A identidade do endpoint em produção (exemplo 00b): um Service Principal cujas credenciais OAuth
+# ficam num secret scope — o deploy (exemplo 05) só referencia os segredos.
+SP_NOME = os.getenv("SP_NOME", "aula-07-agente-suporte")
+SECRET_SCOPE = os.getenv("SECRET_SCOPE", "aula_07")
+
 # Endpoints de Model Serving (Foundation Model API).
 ENDPOINT_LLM = os.getenv("ENDPOINT_LLM_AGENTE", "databricks-claude-sonnet-4-5")
 ENDPOINT_EMBEDDINGS = os.getenv("ENDPOINT_EMBEDDINGS", "databricks-gte-large-en")
@@ -87,13 +92,9 @@ class ConfigAgente:
 
     O alias é lido do ambiente na criação do objeto: `PROMPT_ALIAS=challenger` faz o mesmo agente
     rodar com a versão candidata — é assim que o gate testa o que vai ser promovido (exemplo 06).
-    No endpoint servido, o prompt vem **fixado no deploy** (`prompt_template`/`prompt_version`,
-    exemplo 05): o container de serving não tem acesso ao Prompt Registry.
     """
 
     prompt_alias: str = field(default_factory=lambda: os.getenv("PROMPT_ALIAS", PROMPT_ALIAS))
-    prompt_template: str | None = None    # preenchido só no serving (versão fixada no deploy)
-    prompt_version: int | None = None
     endpoint: str = ENDPOINT_LLM           # deve suportar tool calling
     temperatura: float = 0.0              # 0 = respostas o mais estáveis possível (bom p/ o gate)
     max_tokens: int = 512
@@ -101,8 +102,6 @@ class ConfigAgente:
 
     @property
     def prompt_uri(self) -> str:
-        if self.prompt_version:
-            return f"prompts:/{PROMPT_UC}/{self.prompt_version}"
         return f"prompts:/{PROMPT_UC}@{self.prompt_alias}"
 
     def hash(self, system_prompt: str) -> str:

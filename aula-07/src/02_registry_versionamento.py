@@ -99,9 +99,9 @@ for linha in difflib.unified_diff(frases(producao.template), frases(variante), l
 
 # MAGIC %md
 # MAGIC ## Promover e fazer rollback (reapontar o ponteiro)
-# MAGIC Promover = mover o `champion` para a candidata; rollback = movê-lo de volta. O agente local
-# MAGIC (notebooks, gate) resolve o alias a cada requisição, então a troca vale na hora (o alias fica
-# MAGIC em cache por até 60 s). No endpoint servido, a versão é fixada no deploy (Passo 5).
+# MAGIC Promover = mover o `champion` para a candidata; rollback = movê-lo de volta. O agente — local
+# MAGIC ou no endpoint servido — resolve o alias a cada requisição, então a troca vale **sem novo
+# MAGIC deploy** (o alias fica em cache por até 60 s).
 
 # COMMAND ----------
 

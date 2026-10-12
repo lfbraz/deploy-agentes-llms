@@ -94,6 +94,19 @@ Idempotente: cria a **tabela de pedidos** (os dados reais da função de status)
 registra a **primeira versão produtiva do prompt** no Prompt Registry, com o alias `champion`.
 Roda **dentro de um workspace Databricks** (precisa da sessão `spark`).
 
+### Passo 0b — A identidade do agente em produção (Service Principal)
+
+```bash
+python aula-07/src/00b_service_principal.py
+```
+
+O endpoint precisa ler o prompt do Prompt Registry, que não entra nos `resources` (credenciais
+automáticas) do serving. Este passo cria um **Service Principal**, guarda as credenciais OAuth dele
+num **secret scope** (`aula_07`) e concede o mínimo: `USE CATALOG`; no schema, `USE SCHEMA`,
+`EXECUTE`, `SELECT` e `CREATE FUNCTION` + `MANAGE` (o Prompt Registry exige esse trio até para
+**ler** o prompt — num projeto real, isole os prompts num schema próprio); `CAN_USE` no endpoint
+de Vector Search e `CAN_EDIT` no experimento de produção. Idempotente.
+
 ### Passo 1 — Desenvolver o agente (tools + RAG + observabilidade)
 
 ```bash
@@ -112,8 +125,8 @@ python aula-07/src/02_registry_versionamento.py
 
 **Observe**: partindo da versão em produção (`champion`), registramos uma **candidata** imutável
 (`challenger`), comparamos as duas frase a frase e demonstramos promoção e rollback — terminando
-com a produção intacta. Localmente (notebooks e gate) o agente resolve o alias a cada requisição;
-no endpoint, a versão é fixada no deploy (Passo 5).
+com a produção intacta. O agente (local ou no endpoint) resolve o alias a cada requisição, então
+mover o `champion` muda o prompt usado **sem novo deploy** (cache de até 60 s).
 
 ### Passo 3 — Feedback humano
 
@@ -142,10 +155,9 @@ python aula-07/src/05_serving_deploy.py
 ```
 
 `log_model` (declarando os `resources`) no **experimento de produção** → registro no **Unity
-Catalog** → `agents.deploy`. O container de serving não acessa o Prompt Registry, então o
-`champion` é resolvido no deploy e **fixado no modelo** (`model_config` + `prompts=`, que liga a
-versão do modelo à do prompt): promover um prompt em produção = mover o alias + novo deploy.
-**Observe**: o endpoint herda as credenciais dos recursos automaticamente e grava as traces em `/Users/<você>/agente_suporte_producao` — separado do
+Catalog** → `agents.deploy`. O endpoint roda como o **Service Principal** do Passo 0b
+(`DATABRICKS_CLIENT_ID`/`SECRET` referenciados no secret scope) e lê o prompt `@champion` do
+registry a cada requisição. **Observe**: o endpoint herda as credenciais dos recursos automaticamente e grava as traces em `/Users/<você>/agente_suporte_producao` — separado do
 `experimento_aula_07` das demos. A resposta traz o `trace_id` em `custom_outputs`, e o feedback do
 usuário (`registrar_feedback(trace_id, ...)`) é anexado a essa trace de produção.
 
