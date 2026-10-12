@@ -62,7 +62,11 @@ import pytest
 
 def rodar_gate() -> int:
     """Executa o mesmo pytest da esteira de CI/CD e devolve o exit code."""
-    codigo = int(pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q"]))
+    # No /Workspace o pytest não consegue gravar __pycache__/.pytest_cache (Errno 95): desligamos
+    # essas escritas, senão a coleta falha antes de qualquer teste rodar.
+    sys.dont_write_bytecode = True
+    codigo = int(pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q",
+                              "-p", "no:cacheprovider"]))
     veredicto = "VERDE ✅ (merge liberado)" if codigo == 0 else "VERMELHO ❌ (merge bloqueado)"
     print(f"\n>> gate: exit={codigo} -> {veredicto}")
     return codigo
