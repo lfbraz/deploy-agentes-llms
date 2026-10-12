@@ -90,7 +90,9 @@ import pytest
 # essas escritas, senão a coleta falha antes de qualquer teste rodar.
 sys.dont_write_bytecode = True
 codigo = pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q",
-                      "-p", "no:cacheprovider"])
+                      "-p", "no:cacheprovider",
+                      # plugins (langsmith/anyio) já importados pelo notebook: aviso inofensivo
+                      "-W", "ignore::pytest.PytestAssertRewriteWarning"])
 valido = (codigo == 0)
 audit("GATE", f"pytest exit={int(codigo)} -> {'VÁLIDO' if valido else 'INVÁLIDO'}")
 
