@@ -104,19 +104,33 @@ def configurar_mlflow() -> None:
     _CONFIGURADO = True
 
 
-def _caminho_experimento() -> str | None:
-    """O caminho do experimento: usa MLFLOW_EXPERIMENT ou monta /Users/<você>/experimento_aula_07."""
-    from .config import MLFLOW_EXPERIMENT
-
-    if MLFLOW_EXPERIMENT:
-        return MLFLOW_EXPERIMENT
+def _caminho_experimento(explicito: str | None, nome: str) -> str | None:
+    """O caminho do experimento: o explícito (env) ou /Users/<você>/<nome>."""
+    if explicito:
+        return explicito
     try:
         from databricks.sdk import WorkspaceClient
 
         eu = WorkspaceClient().current_user.me().user_name
-        return f"/Users/{eu}/experimento_aula_07"
+        return f"/Users/{eu}/{nome}"
     except Exception:
         return None
+
+
+def usar_experimento_producao():
+    """Ativa o experimento de PRODUÇÃO e o devolve (objeto `Experiment`).
+
+    É nele que o exemplo 05 registra o modelo, e é o id dele que o deploy passa ao endpoint
+    (`MLFLOW_EXPERIMENT_ID`) para gravar as traces e o feedback. Assim o uso real fica separado das
+    demos dos notebooks (`experimento_aula_07`).
+    """
+    import mlflow
+
+    from .config import MLFLOW_EXPERIMENT_PROD
+
+    configurar_mlflow()
+    nome = _caminho_experimento(MLFLOW_EXPERIMENT_PROD, nome="agente_suporte_producao")
+    return mlflow.set_experiment(nome)
 
 
 def _configurar_experimento(mlflow) -> None:
@@ -126,9 +140,9 @@ def _configurar_experimento(mlflow) -> None:
     "OpenTelemetry on Databricks" ligado. Se algo faltar, caímos num experimento comum de workspace
     — sem travar o resto do notebook.
     """
-    from .config import CATALOGO, SCHEMA, SQL_WAREHOUSE_ID, TRACE_TABLE_PREFIX
+    from .config import CATALOGO, MLFLOW_EXPERIMENT, SCHEMA, SQL_WAREHOUSE_ID, TRACE_TABLE_PREFIX
 
-    nome = _caminho_experimento()
+    nome = _caminho_experimento(MLFLOW_EXPERIMENT, nome="experimento_aula_07")
     if not nome:
         return
 

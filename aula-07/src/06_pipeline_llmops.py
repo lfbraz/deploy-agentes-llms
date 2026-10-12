@@ -46,11 +46,10 @@ while _dir != os.path.dirname(_dir):
         break
     _dir = os.path.dirname(_dir)
 
-import mlflow
-
 from agente.agente_suporte import registrar_feedback, responder
-from agente.config import CONFIG_PADRAO, MODELO_UC, PROMPT_UC
+from agente.config import MODELO_UC, PROMPT_UC, SYSTEM_PROMPT_PADRAO
 from agente.mlflow_databricks import configurar_mlflow, credenciais_ok
+from agente.prompt_registry import mover_alias, registrar_versao
 
 if not credenciais_ok():
     raise SystemExit("Configure DATABRICKS_HOST/TOKEN no aula-07/.env (veja o .env.example).")
@@ -63,24 +62,26 @@ def audit(etapa, detalhe):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Registrar a versão do prompt
+# MAGIC ## Registrar a versão candidata do prompt
 # MAGIC
-# MAGIC O agente já funciona (Passo 1) sobre os recursos do Passo 0. Registramos a versão atual do
-# MAGIC prompt no Prompt Registry (Passo 2).
+# MAGIC O agente já funciona (Passo 1) sobre os recursos do Passo 0. Registramos o prompt do código
+# MAGIC (com a variável `{{loja}}`) como **candidato**: se o texto não mudou, reaproveitamos a versão
+# MAGIC existente em vez de criar uma cópia. A candidata recebe o alias `challenger`.
 
 # COMMAND ----------
 
-versao = mlflow.genai.register_prompt(
-    name=PROMPT_UC, template=CONFIG_PADRAO.system_prompt, commit_message="pipeline")
-audit("REGISTRO", f"prompt {PROMPT_UC} v{versao.version}")
+candidata = registrar_versao(SYSTEM_PROMPT_PADRAO, mensagem="pipeline")
+mover_alias("challenger", candidata)
+audit("REGISTRO", f"prompt {PROMPT_UC} v{candidata} -> challenger")
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Gate de aprovação (os testes unitários do Passo 4)
 # MAGIC
-# MAGIC Rodamos o **mesmo** gate da esteira: o `pytest` sobre `04_gate_aprovacao.py`. Só promovemos se
-# MAGIC todos os testes passarem (exit code 0).
+# MAGIC Rodamos o **mesmo** gate da esteira: o `pytest` sobre `04_gate_aprovacao.py` — mas com
+# MAGIC `PROMPT_ALIAS=challenger`, para o agente carregar a **versão candidata**. Assim o gate testa
+# MAGIC exatamente o que vai ser promovido. Só promovemos se todos os testes passarem (exit code 0).
 
 # COMMAND ----------
 
@@ -89,10 +90,14 @@ import pytest
 # No /Workspace o pytest não consegue gravar __pycache__/.pytest_cache (Errno 95): desligamos
 # essas escritas, senão a coleta falha antes de qualquer teste rodar.
 sys.dont_write_bytecode = True
-codigo = pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q",
-                      "-p", "no:cacheprovider",
-                      # plugins (langsmith/anyio) já importados pelo notebook: aviso inofensivo
-                      "-W", "ignore::pytest.PytestAssertRewriteWarning"])
+os.environ["PROMPT_ALIAS"] = "challenger"   # o agente do gate carrega a versão candidata
+try:
+    codigo = pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q",
+                          "-p", "no:cacheprovider",
+                          # plugins (langsmith/anyio) já importados pelo notebook: aviso inofensivo
+                          "-W", "ignore::pytest.PytestAssertRewriteWarning"])
+finally:
+    os.environ.pop("PROMPT_ALIAS", None)    # de volta ao champion
 valido = (codigo == 0)
 audit("GATE", f"pytest exit={int(codigo)} -> {'VÁLIDO' if valido else 'INVÁLIDO'}")
 
@@ -107,9 +112,8 @@ audit("GATE", f"pytest exit={int(codigo)} -> {'VÁLIDO' if valido else 'INVÁLID
 # COMMAND ----------
 
 if valido:
-    mlflow.genai.set_prompt_alias(PROMPT_UC, alias="champion", version=versao.version)
-    champ = mlflow.genai.load_prompt(f"prompts:/{PROMPT_UC}@champion")
-    audit("PROMOÇÃO", f"champion -> v{champ.version}")
+    mover_alias("champion", candidata)
+    audit("PROMOÇÃO", f"champion -> v{candidata}")
 else:
     audit("PROMOÇÃO", "bloqueada (gate vermelho)")
 

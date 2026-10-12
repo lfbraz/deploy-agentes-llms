@@ -13,6 +13,9 @@ O "cérebro" é um endpoint Foundation Model acessado pelo `ChatDatabricks`. As 
 são as **UC Functions** (`ferramentas.py`) e o **retriever de Vector Search** (`base_vetorial.py`).
 O *tool use* é um **loop explícito** (`bind_tools` → o modelo pede uma ferramenta → executamos →
 devolvemos o resultado → repete até ele concluir). E a observabilidade não exige esforço extra: com o `mlflow.langchain.autolog()`, cada chamada ao modelo ou a uma ferramenta vira um *span* dentro da trace.
+
+O system prompt vem do **Prompt Registry** (alias `champion`), carregado dentro da trace: cada
+resposta fica ligada à versão do prompt que a gerou.
 """
 
 from __future__ import annotations
@@ -22,8 +25,9 @@ import uuid
 from dataclasses import dataclass, field
 
 import mlflow
+from mlflow.entities import SpanType
 
-from .config import CONFIG_PADRAO, LOJA, ConfigAgente
+from .config import LOJA, ConfigAgente
 from .mlflow_databricks import configurar_mlflow, exigir_databricks
 
 
@@ -40,6 +44,7 @@ class Resposta:
     trace_id: str
     ferramentas_usadas: list[str] = field(default_factory=list)
     latencia_ms: float = 0.0
+    prompt_versao: int | None = None
 
 
 TELEMETRIA: list[Resposta] = []
@@ -79,12 +84,13 @@ def _llm(config: ConfigAgente):
     return _LLMS[config.endpoint]
 
 
-def _loop_decisao(config: ConfigAgente, pergunta: str, max_voltas: int = 5) -> tuple[str, list[str]]:
+def _loop_decisao(config: ConfigAgente, system_prompt: str, pergunta: str,
+                  max_voltas: int = 5) -> tuple[str, list[str]]:
     """Loop do tool use: o modelo pede uma ferramenta, executamos e devolvemos, até ele concluir."""
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     llm_tools, registro = _llm(config)
-    mensagens = [SystemMessage(config.system_prompt), HumanMessage(pergunta)]
+    mensagens = [SystemMessage(system_prompt), HumanMessage(pergunta)]
     ferramentas_usadas: list[str] = []
 
     resposta = llm_tools.invoke(mensagens)
@@ -103,6 +109,29 @@ def _loop_decisao(config: ConfigAgente, pergunta: str, max_voltas: int = 5) -> t
     return texto.strip(), ferramentas_usadas
 
 
+@mlflow.trace(name="agente_suporte", span_type=SpanType.AGENT)
+def _executar(config: ConfigAgente, pergunta: str) -> tuple[str, list[str], int, str]:
+    """Uma requisição = uma trace: carrega o prompt pelo alias, roda o loop e etiqueta a trace."""
+    if config.prompt_template:   # serving: versão fixada no deploy (exemplo 05)
+        template, versao = config.prompt_template, config.prompt_version
+    else:
+        try:
+            prompt = mlflow.genai.load_prompt(config.prompt_uri)   # dentro da trace -> vinculado
+        except Exception as e:
+            raise RuntimeError(f"Não consegui carregar {config.prompt_uri}. Rode o Passo 0 "
+                               "(00_setup_recursos) para registrar a versão produtiva.") from e
+        template, versao = prompt.template, prompt.version
+    system_prompt = template.replace("{{loja}}", LOJA)
+    if mlflow.get_current_active_span():   # sem trace ativa (ex.: validação do log_model), pula
+        mlflow.update_current_trace(tags={
+            "prompt_uri": config.prompt_uri,
+            "prompt_version": str(versao),
+            "config_hash": config.hash(system_prompt),
+        })
+    texto, ferramentas = _loop_decisao(config, system_prompt, pergunta)
+    return texto, ferramentas, int(versao), mlflow.get_active_trace_id()
+
+
 # ---------------------------------------------------------------------------------------
 # A embalagem para o serving: o MLflow ResponsesAgent (deploy, serving e Agent Evaluation).
 # ---------------------------------------------------------------------------------------
@@ -114,14 +143,18 @@ from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 class AgenteSuporteResponses(ResponsesAgent):
     """Expõe o agente pela interface ResponsesAgent — o padrão do Databricks Agent Framework."""
 
-    def __init__(self, config: ConfigAgente = CONFIG_PADRAO):
-        self.config = config
+    def __init__(self, config: ConfigAgente | None = None):
+        self.config = config or ConfigAgente()
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        configurar_mlflow()
         pergunta = _ultima_pergunta(request)
-        texto, _ = _loop_decisao(self.config, pergunta)
+        texto, ferramentas, versao, trace_id = _executar(self.config, pergunta)
+        # O trace_id volta para quem chamou: é com ele que a app grava o 👍/👎 (registrar_feedback).
         return ResponsesAgentResponse(
-            output=[self.create_text_output_item(text=texto, id=uuid.uuid4().hex)])
+            output=[self.create_text_output_item(text=texto, id=uuid.uuid4().hex)],
+            custom_outputs={"trace_id": trace_id, "prompt_version": versao,
+                            "ferramentas": ferramentas})
 
 
 def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
@@ -137,7 +170,7 @@ def _ultima_pergunta(request: ResponsesAgentRequest) -> str:
     return ""
 
 
-def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteSuporteResponses:
+def construir_agente_databricks(config: ConfigAgente | None = None) -> AgenteSuporteResponses:
     """Constrói o agente pronto para registrar e servir (models-from-code)."""
     return AgenteSuporteResponses(config)
 
@@ -146,32 +179,43 @@ def construir_agente_databricks(config: ConfigAgente = CONFIG_PADRAO) -> AgenteS
 # A porta de entrada: conversar com o agente e registrar o feedback de quem usou.
 # ---------------------------------------------------------------------------------------
 
-def responder(pergunta: str, config: ConfigAgente = CONFIG_PADRAO) -> Resposta:
+def responder(pergunta: str, config: ConfigAgente | None = None) -> Resposta:
     """Roda o agente e devolve a `Resposta`, já com o rastro (trace) daquela requisição."""
+    configurar_mlflow()   # antes da trace: tracking/registry/experimento no lugar certo
     t0 = time.perf_counter()
-    texto, ferramentas = _loop_decisao(config, pergunta)
-    trace_id = mlflow.get_last_active_trace_id() or f"tr-{uuid.uuid4().hex[:12]}"
+    texto, ferramentas, versao, trace_id = _executar(config or ConfigAgente(), pergunta)
     resp = Resposta(
-        pergunta=pergunta, texto=texto, trace_id=trace_id,
-        ferramentas_usadas=ferramentas, latencia_ms=(time.perf_counter() - t0) * 1000,
+        pergunta=pergunta, texto=texto, trace_id=trace_id, ferramentas_usadas=ferramentas,
+        latencia_ms=(time.perf_counter() - t0) * 1000, prompt_versao=versao,
     )
     TELEMETRIA.append(resp)
     return resp
 
 
-def registrar_feedback(resp: Resposta, util: bool, comentario: str = "",
+def registrar_feedback(resp: Resposta | str, util: bool, comentario: str = "",
                        usuario: str = "cliente@acme.com") -> None:
     """Anexa o 👍/👎 do usuário à trace, como uma *assessment* HUMANA.
 
     É o **human feedback** do MLflow 3: o veredito do usuário fica anexado à trace e alimenta
-    a avaliação e a curadoria de *golden sets* (veja a Aula 6).
+    a avaliação e a curadoria de *golden sets* (veja a Aula 6). Aceita a `Resposta` local ou só
+    o `trace_id` — que é o que o endpoint servido devolve em `custom_outputs`.
     """
     from mlflow.entities import AssessmentSource
 
-    mlflow.log_feedback(
-        trace_id=resp.trace_id,
-        name="user_feedback",
-        value=bool(util),
-        source=AssessmentSource(source_type="HUMAN", source_id=usuario),
-        rationale=comentario or None,
-    )
+    # As traces são exportadas de forma assíncrona: esvaziamos a fila local e, se a trace ainda
+    # não chegou ao servidor (comum logo após a resposta do endpoint), tentamos de novo.
+    mlflow.flush_trace_async_logging()
+    for tentativa in range(6):
+        try:
+            mlflow.log_feedback(
+                trace_id=resp if isinstance(resp, str) else resp.trace_id,
+                name="user_feedback",
+                value=bool(util),
+                source=AssessmentSource(source_type="HUMAN", source_id=usuario),
+                rationale=comentario or None,
+            )
+            return
+        except Exception as e:
+            if "not found" not in str(e).lower() or tentativa == 5:
+                raise
+            time.sleep(5)

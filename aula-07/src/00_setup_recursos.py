@@ -11,7 +11,9 @@
 # MAGIC   pedidos) e `calcular_frete` (função **Python**), registradas no Unity Catalog (com
 # MAGIC   permissões, linhagem e descoberta) — Aulas 3-4;
 # MAGIC - **Índice de Vector Search** (o RAG): uma tabela Delta com as políticas da loja, sincronizada
-# MAGIC   para um índice de **Databricks AI Search** com embeddings gerenciados — Aula 4.
+# MAGIC   para um índice de **Databricks AI Search** com embeddings gerenciados — Aula 4;
+# MAGIC - **Prompt de produção**: a primeira versão do system prompt no **Prompt Registry**, com o
+# MAGIC   alias `champion` — é por ele que o agente carrega o prompt.
 # MAGIC
 # MAGIC Este passo é **idempotente**: rode quantas vezes quiser. Ele precisa de um catálogo/schema com
 # MAGIC permissão de escrita (configure `UC_CATALOG`/`UC_SCHEMA` no `.env`; padrão `aula_07.default`).
@@ -160,6 +162,23 @@ print(f">> índice de Vector Search pronto: {indice}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Com as **UC Functions** e o **índice de Vector Search** no Unity Catalog, os recursos do agente
-# MAGIC estão governados e prontos. O próximo passo monta o agente que os consome (tools + RAG) com
-# MAGIC observabilidade automática.
+# MAGIC ## 5) Registrar a versão produtiva do prompt (Prompt Registry)
+# MAGIC O system prompt também é um recurso governado: registramos a **primeira versão produtiva** no
+# MAGIC Prompt Registry e apontamos o alias `champion` para ela. O agente sempre lê o prompt por esse
+# MAGIC alias. Se já existe um `champion`, nada muda (quem promove versões é o pipeline, Passo 6).
+
+# COMMAND ----------
+
+from agente.config import PROMPT_UC
+from agente.mlflow_databricks import configurar_mlflow
+from agente.prompt_registry import garantir_prompt_producao
+
+configurar_mlflow()
+print(f">> prompt de produção: {PROMPT_UC}@champion -> v{garantir_prompt_producao()}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Com as **UC Functions**, o **índice de Vector Search** e o **prompt** no Unity Catalog, os
+# MAGIC recursos do agente estão governados e prontos. O próximo passo monta o agente que os consome
+# MAGIC (tools + RAG) com observabilidade automática.

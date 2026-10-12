@@ -47,13 +47,14 @@ while _dir != os.path.dirname(_dir):
 
 from agente.agente_suporte import TELEMETRIA, responder
 from agente.base_vetorial import backend_rag
-from agente.config import CONFIG_PADRAO
+from agente.config import ENDPOINT_LLM, PROMPT_UC
 from agente.mlflow_databricks import credenciais_ok
 
 if not credenciais_ok():
     raise SystemExit("Configure DATABRICKS_HOST/TOKEN no aula-07/.env (veja o .env.example).")
 
-print("endpoint do modelo:", CONFIG_PADRAO.endpoint)
+print("endpoint do modelo:", ENDPOINT_LLM)
+print("prompt (registry) :", f"{PROMPT_UC}@champion")
 print("índice (RAG)      :", backend_rag())
 
 # COMMAND ----------
@@ -62,8 +63,9 @@ print("índice (RAG)      :", backend_rag())
 # MAGIC ## Uma conversa cobrindo cada pilar
 # MAGIC
 # MAGIC O `responder()` roda o agente e devolve a telemetria da requisição (texto, ferramentas usadas,
-# MAGIC latência e o `trace_id`). Observe a coluna *ferramentas*: a UC Function entra nas perguntas de
-# MAGIC pedido/frete e o `buscar_politica` (Vector Search) entra nas perguntas de política.
+# MAGIC latência, o `trace_id` e a **versão do prompt** usada). Observe a coluna *ferramentas*: a UC
+# MAGIC Function entra nas perguntas de pedido/frete e o `buscar_politica` (Vector Search) entra nas
+# MAGIC perguntas de política. O system prompt vem do **Prompt Registry**, pelo alias `champion`.
 
 # COMMAND ----------
 
@@ -79,7 +81,8 @@ for rotulo, pergunta in roteiro:
     print(f"  Usuário : {pergunta}")
     print(f"  Agente  : {r.texto}")
     tools = ", ".join(r.ferramentas_usadas) or "—"
-    print(f"  Trace   : {r.trace_id} | {r.latencia_ms:.0f} ms | ferramentas: {tools}")
+    print(f"  Trace   : {r.trace_id} | {r.latencia_ms:.0f} ms | ferramentas: {tools}"
+          f" | prompt v{r.prompt_versao}")
 
 # COMMAND ----------
 
