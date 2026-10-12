@@ -174,24 +174,27 @@ print("review app :", getattr(deployment, "review_app_url", "—"))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4) Consultar o endpoint (quando estiver READY)
+# MAGIC ## 4) Esperar o endpoint ficar READY e consultá-lo
 # MAGIC
-# MAGIC Depois que o endpoint sobe, consulte-o pelo deploy client. (Logo após o deploy ele ainda pode
-# MAGIC estar provisionando — rode esta célula novamente em alguns minutos, ou teste no AI Playground.)
+# MAGIC O `agents.deploy` só **inicia** o deploy (leva até ~15 min). Consultar antes disso devolve
+# MAGIC `404 ENDPOINT_NOT_FOUND` ("not ready to serve traffic yet") — então esperamos o endpoint
+# MAGIC terminar de subir e só então o consultamos pelo deploy client.
 
 # COMMAND ----------
 
+from datetime import timedelta
+
 from mlflow.deployments import get_deploy_client
 
-extras = None
-try:
-    resp = get_deploy_client("databricks").predict(endpoint=deployment.endpoint_name,
-                                                   inputs=input_example)
-    extras = resp["custom_outputs"]   # trace_id, versão do prompt e ferramentas usadas
-    print("resposta:", resp["output"][-1]["content"][0]["text"])
-    print("extras  :", extras)
-except Exception as e:
-    print("endpoint ainda provisionando — tente de novo em alguns minutos.\n", e)
+# Bloqueia até o deploy terminar (e falha com a mensagem do serving se o deploy der erro).
+WorkspaceClient().serving_endpoints.wait_get_serving_endpoint_not_updating(
+    deployment.endpoint_name, timeout=timedelta(minutes=30))
+
+resp = get_deploy_client("databricks").predict(endpoint=deployment.endpoint_name,
+                                               inputs=input_example)
+extras = resp["custom_outputs"]   # trace_id, versão do prompt e ferramentas usadas
+print("resposta:", resp["output"][-1]["content"][0]["text"])
+print("extras  :", extras)
 
 # COMMAND ----------
 
@@ -205,11 +208,8 @@ except Exception as e:
 
 from agente.agente_suporte import registrar_feedback
 
-if extras:
-    registrar_feedback(extras["trace_id"], util=True, comentario="resposta correta (via endpoint)")
-    print("👍 feedback gravado na trace de produção", extras["trace_id"])
-else:
-    print("endpoint ainda não respondeu — rode a célula anterior (e esta) quando estiver READY.")
+registrar_feedback(extras["trace_id"], util=True, comentario="resposta correta (via endpoint)")
+print("👍 feedback gravado na trace de produção", extras["trace_id"])
 
 # COMMAND ----------
 
