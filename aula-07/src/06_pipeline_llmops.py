@@ -86,7 +86,11 @@ audit("REGISTRO", f"prompt {PROMPT_UC} v{versao.version}")
 
 import pytest
 
-codigo = pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q"])
+# No /Workspace o pytest não consegue gravar __pycache__/.pytest_cache (Errno 95): desligamos
+# essas escritas, senão a coleta falha antes de qualquer teste rodar.
+sys.dont_write_bytecode = True
+codigo = pytest.main([os.path.join(BASE, "src", "04_gate_aprovacao.py"), "-q",
+                      "-p", "no:cacheprovider"])
 valido = (codigo == 0)
 audit("GATE", f"pytest exit={int(codigo)} -> {'VÁLIDO' if valido else 'INVÁLIDO'}")
 
