@@ -97,7 +97,7 @@ class ConfigAgente:
     prompt_alias: str = field(default_factory=lambda: os.getenv("PROMPT_ALIAS", PROMPT_ALIAS))
     endpoint: str = ENDPOINT_LLM           # deve suportar tool calling
     temperatura: float = 0.0              # 0 = respostas o mais estáveis possível (bom p/ o gate)
-    max_tokens: int = 512
+    max_tokens: int = 512                 # configuração de MAX_TOKENS
     autor: str = AUTOR
 
     @property
