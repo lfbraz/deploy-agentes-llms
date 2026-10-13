@@ -38,11 +38,12 @@ while _dir != os.path.dirname(_dir):
     _dir = os.path.dirname(_dir)
 
 from agente.agente_suporte import responder
-from agente.config import ENDPOINT_LLM
 from agente.mlflow_databricks import credenciais_ok
 
-# Modelo juiz do scorer (mesmo formato da Aula 6). Por padrão, o próprio LLM do agente.
-JUIZ = "databricks:/" + os.getenv("ENDPOINT_JUIZ", ENDPOINT_LLM)
+# Modelo juiz do scorer (mesmo formato da Aula 6). Use um modelo DIFERENTE (e mais forte) que o
+# do agente: com o próprio llama-3.3-70b como juiz, respostas corretas eram reprovadas em 1 a 3 de
+# cada 5 avaliações; o gpt-oss-120b acertou todas. Troque com a env ENDPOINT_JUIZ.
+JUIZ = "databricks:/" + os.getenv("ENDPOINT_JUIZ", "databricks-gpt-oss-120b")
 
 # Sem credenciais não dá para executar o agente real, então o módulo inteiro é pulado.
 pytestmark = pytest.mark.skipif(
