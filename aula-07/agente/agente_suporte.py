@@ -32,7 +32,7 @@ from .mlflow_databricks import configurar_mlflow, exigir_databricks
 
 
 # ---------------------------------------------------------------------------------------
-# A resposta e a telemetria que acompanham cada pergunta.
+# A resposta e a telemetria que acompanham cada pergunta. -------------------------------
 # ---------------------------------------------------------------------------------------
 
 @dataclass
